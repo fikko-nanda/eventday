@@ -6,6 +6,7 @@ import com.example.eventday.dto.RegisterRequest;
 import com.example.eventday.entity.User;
 import com.example.eventday.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -13,30 +14,31 @@ import org.springframework.stereotype.Service;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuditLogService auditLogService;
 
     public AuthResponse register(RegisterRequest request) {
-        // 1. Validasi Email ganda
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new RuntimeException("Email sudah terdaftar!");
         }
 
-        // 2. Validasi NIK ganda (jika NIK diisi)
         if (request.getNik() != null && userRepository.existsByNik(request.getNik())) {
             throw new RuntimeException("NIK sudah terdaftar!");
         }
 
-        // 3. Mapping data ke Entity User
         User user = User.builder()
                 .name(request.getName())
                 .email(request.getEmail())
                 .phone(request.getPhone())
-                .password(request.getPassword())
+                .password(passwordEncoder.encode(request.getPassword()))
                 .role(request.getRole() != null ? request.getRole() : User.Role.CUSTOMER)
                 .nik(request.getNik())
                 .build();
 
-        // 4. Simpan ke database (PostgreSQL akan men-generate UUID v4)
         User savedUser = userRepository.save(user);
+
+        auditLogService.log(savedUser.getUserId(), savedUser.getName(), "REGISTER", "USER",
+                savedUser.getUserId().toString(), "Registrasi user baru: " + savedUser.getEmail());
 
         return AuthResponse.builder()
                 .message("Registrasi berhasil!")
@@ -48,14 +50,17 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        // 1. Cari user berdasarkan email
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("Email atau password salah!"));
 
-        // 2. Validasi password
-        if (!user.getPassword().equals(request.getPassword())) {
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            auditLogService.log(user.getUserId(), user.getName(), "LOGIN_FAILED", "USER",
+                    user.getUserId().toString(), "Percobaan login gagal: " + request.getEmail());
             throw new RuntimeException("Email atau password salah!");
         }
+
+        auditLogService.log(user.getUserId(), user.getName(), "LOGIN", "USER",
+                user.getUserId().toString(), "Login sukses: " + user.getEmail());
 
         return AuthResponse.builder()
                 .message("Login berhasil!")

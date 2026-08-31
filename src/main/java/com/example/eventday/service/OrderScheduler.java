@@ -22,27 +22,36 @@ public class OrderScheduler {
     private final OrderRepository orderRepository;
     private final TicketItemRepository ticketItemRepository;
     private final TicketTierRepository ticketTierRepository;
+    private final AuditLogService auditLogService;
 
-    // Menjalankan pengecekan setiap 60 detik (1 menit)
     @Scheduled(fixedRate = 60000)
-    @Transactional
     public void cancelExpiredOrders() {
         List<Order> expiredOrders = orderRepository.findByStatusAndExpiredAtBefore(
                 OrderStatus.PENDING, LocalDateTime.now()
         );
 
         for (Order order : expiredOrders) {
-            // 1. Ubah status Order menjadi EXPIRED
-            order.setStatus(OrderStatus.EXPIRED);
-            orderRepository.save(order);
-
-            // 2. Kembalikan kuota ke masing-masing TicketTier yang batal dipesan
-            List<TicketItem> items = ticketItemRepository.findByOrderOrderId(order.getOrderId());
-            for (TicketItem item : items) {
-                TicketTier tier = item.getTier();
-                tier.setAvailableQuota(tier.getAvailableQuota() + 1);
-                ticketTierRepository.save(tier);
+            try {
+                processExpiredOrder(order);
+            } catch (Exception e) {
+                System.err.println("Gagal memproses order " + order.getOrderNumber() + ": " + e.getMessage());
             }
+        }
+    }
+
+    @Transactional
+    public void processExpiredOrder(Order order) {
+        order.setStatus(OrderStatus.EXPIRED);
+        orderRepository.save(order);
+
+        auditLogService.log(order.getCustomer().getUserId(), order.getCustomer().getName(), "EXPIRE", "ORDER",
+                order.getOrderId().toString(), "Order " + order.getOrderNumber() + " otomatis kedaluwarsa");
+
+        List<TicketItem> items = ticketItemRepository.findByOrderOrderId(order.getOrderId());
+        for (TicketItem item : items) {
+            TicketTier tier = item.getTier();
+            tier.setAvailableQuota(tier.getAvailableQuota() + 1);
+            ticketTierRepository.save(tier);
         }
     }
 }

@@ -36,4 +36,9 @@ public class TicketTier {
 
     @Column(name = "max_per_user", nullable = false)
     private Integer maxPerUser;
+
+    @Version
+    @Column(nullable = false)
+    @Builder.Default
+    private Long version = 0L;
 }

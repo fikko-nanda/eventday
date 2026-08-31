@@ -232,15 +232,10 @@ atau
 {
   "orderId": "990e8400-e29b-41d4-a716-446655440000",
   "orderNumber": "ORD-1703123456789",
-  "customer": {
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "name": "John Doe",
-    "email": "john@example.com"
-  },
-  "event": {
-    "eventId": "660e8400-e29b-41d4-a716-446655440000",
-    "title": "Konser BTS"
-  },
+  "customerName": "John Doe",
+  "customerEmail": "john@example.com",
+  "eventId": "660e8400-e29b-41d4-a716-446655440000",
+  "eventTitle": "Konser BTS",
   "totalAmount": 255000,
   "adminFee": 5000,
   "status": "PENDING",
@@ -286,11 +281,8 @@ atau
 ```json
 {
   "paymentId": "aa0e8400-e29b-41d4-a716-446655440000",
-  "order": {
-    "orderId": "990e8400-e29b-41d4-a716-446655440000",
-    "orderNumber": "ORD-1703123456789",
-    "status": "SUCCESS"
-  },
+  "orderId": "990e8400-e29b-41d4-a716-446655440000",
+  "orderNumber": "ORD-1703123456789",
   "paymentMethod": "BCA",
   "paymentStatus": "SUCCESS",
   "transactionIdGateway": "TRX-GW-a1b2c3d4",
@@ -401,14 +393,10 @@ atau
 ```json
 {
   "ticketItemId": "bb0e8400-e29b-41d4-a716-446655440000",
-  "order": {
-    "orderId": "990e8400-e29b-41d4-a716-446655440000",
-    "orderNumber": "ORD-1703123456789"
-  },
-  "tier": {
-    "tierId": "880e8400-e29b-41d4-a716-446655440000",
-    "tierName": "VIP"
-  },
+  "orderId": "990e8400-e29b-41d4-a716-446655440000",
+  "orderNumber": "ORD-1703123456789",
+  "tierId": "880e8400-e29b-41d4-a716-446655440000",
+  "tierName": "VIP",
   "ticketCode": "TKT-a1b2c3d4",
   "attendeeName": "John Doe",
   "attendeeNik": "3201234567890123",
@@ -427,6 +415,236 @@ atau
 ```json
 "Gagal: Tiket sudah pernah di-scan pada 2025-12-25T18:55:00"
 ```
+
+---
+
+## 12. Refunds - Create Refund Request
+
+**POST** `/api/refunds`
+
+### Request Body
+```json
+{
+  "orderId": "990e8400-e29b-41d4-a716-446655440000",
+  "customerId": "550e8400-e29b-41d4-a716-446655440000",
+  "reason": "Event dibatalkan",
+  "bankName": "BCA",
+  "bankAccountNumber": "1234567890",
+  "bankAccountName": "John Doe"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| orderId | UUID | Yes | Order SUCCESS yang mau di-refund |
+| customerId | UUID | Yes | User ID customer pemilik order |
+| reason | String | Yes | Alasan refund |
+| bankName | String | Yes | Nama bank tujuan transfer |
+| bankAccountNumber | String | Yes | Nomor rekening tujuan |
+| bankAccountName | String | Yes | Nama pemilik rekening |
+
+### Response (200 OK)
+```json
+{
+  "refundId": "cc0e8400-e29b-41d4-a716-446655440000",
+  "orderId": "990e8400-e29b-41d4-a716-446655440000",
+  "customerId": "550e8400-e29b-41d4-a716-446655440000",
+  "reason": "Event dibatalkan",
+  "refundAmount": 255000,
+  "bankName": "BCA",
+  "bankAccountNumber": "1234567890",
+  "bankAccountName": "John Doe",
+  "status": "PENDING",
+  "requestedAt": "2025-12-21T09:00:00",
+  "processedAt": null
+}
+```
+
+`refundAmount` otomatis = `order.totalAmount`.
+
+### Response (400 Bad Request)
+```json
+"Hanya order berstatus SUCCESS yang bisa di-refund!"
+```
+```json
+"Order tidak ditemukan!"
+```
+
+---
+
+## 13. Refunds - Get All Refund Requests
+
+**GET** `/api/refunds`
+
+### Response (200 OK)
+```json
+[
+  {
+    "refundId": "cc0e8400-e29b-41d4-a716-446655440000",
+    "orderId": "990e8400-e29b-41d4-a716-446655440000",
+    "reason": "Event dibatalkan",
+    "refundAmount": 255000,
+    "status": "PENDING",
+    "requestedAt": "2025-12-21T09:00:00"
+  }
+]
+```
+
+---
+
+## 14. Refunds - Approve / Reject / Refunded (Super Admin)
+
+**PUT** `/api/refunds/{refundId}/approve`
+
+**PUT** `/api/refunds/{refundId}/reject?note=Bukti transfer tidak valid`
+
+**PUT** `/api/refunds/{refundId}/refunded`
+
+### Query Parameters (reject saja)
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| note | String | No | Alasan penolakan |
+
+### Response (200 OK)
+```json
+{
+  "refundId": "cc0e8400-e29b-41d4-a716-446655440000",
+  "orderId": "990e8400-e29b-41d4-a716-446655440000",
+  "reason": "Event dibatalkan",
+  "refundAmount": 255000,
+  "status": "APPROVED",
+  "adminNote": null,
+  "processedAt": "2025-12-21T10:00:00"
+}
+```
+
+Status setelah aksi:
+- `approve` → status `APPROVED`
+- `reject` → status `REJECTED`, `adminNote` terisi
+- `refunded` → status `REFUNDED`
+
+---
+
+## 15. Reschedules - Create Reschedule Request
+
+**POST** `/api/reschedules`
+
+### Request Body
+```json
+{
+  "eventId": "660e8400-e29b-41d4-a716-446655440000",
+  "newStartDate": "2026-01-15T19:00:00",
+  "newEndDate": "2026-01-15T23:00:00",
+  "reason": "Alasan penundaan konser"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| eventId | UUID | Yes | Event yang dijadwal ulang |
+| newStartDate | DateTime | Yes | Tanggal baru, harus masa depan |
+| newEndDate | DateTime | Yes | Harus setelah newStartDate |
+| reason | String | Yes | Alasan reschedule |
+
+### Response (200 OK)
+```json
+{
+  "rescheduleId": "dd0e8400-e29b-41d4-a716-446655440000",
+  "eventId": "660e8400-e29b-41d4-a716-446655440000",
+  "newStartDate": "2026-01-15T19:00:00",
+  "newEndDate": "2026-01-15T23:00:00",
+  "reason": "Alasan penundaan konser",
+  "status": "PENDING",
+  "requestedAt": "2025-12-21T09:00:00"
+}
+```
+
+### Response (400 Bad Request)
+```json
+"Jadwal baru tidak boleh di masa lampau!"
+```
+```json
+"Tanggal selesai harus setelah tanggal mulai!"
+```
+
+---
+
+## 16. Reschedules - Approve / Reject (Super Admin)
+
+**PUT** `/api/reschedules/{rescheduleId}/approve`
+
+**PUT** `/api/reschedules/{rescheduleId}/reject`
+
+**GET** `/api/reschedules`
+
+### Response (200 OK approve)
+```json
+{
+  "rescheduleId": "dd0e8400-e29b-41d4-a716-446655440000",
+  "newStartDate": "2026-01-15T19:00:00",
+  "newEndDate": "2026-01-15T23:00:00",
+  "status": "APPROVED"
+}
+```
+
+`approve` → tanggal event (startDate/endDate) otomatis diganti tanggal baru.
+
+---
+
+## 17. Audit - Get All Logs (Super Admin)
+
+**GET** `/api/audit`
+
+### Response (200 OK)
+```json
+[
+  {
+    "auditId": "ee0e8400-e29b-41d4-a716-446655440000",
+    "actorId": "550e8400-e29b-41d4-a716-446655440000",
+    "actorName": "John Doe",
+    "action": "LOGIN",
+    "entityType": "USER",
+    "entityId": "550e8400-e29b-41d4-a716-446655440000",
+    "detail": "Login sukses: john@example.com",
+    "createdAt": "2025-12-21T08:01:00"
+  },
+  {
+    "auditId": "ef0e8400-e29b-41d4-a716-446655440000",
+    "actorId": "550e8400-e29b-41d4-a716-446655440000",
+    "actorName": "John Doe",
+    "action": "CREATE",
+    "entityType": "ORDER",
+    "entityId": "990e8400-e29b-41d4-a716-446655440000",
+    "detail": "Buat order ORD-1703123456789",
+    "createdAt": "2025-12-21T08:15:00"
+  }
+]
+```
+
+## 18. Audit - Get Logs By Actor
+
+**GET** `/api/audit/actor/{actorId}`
+
+### Path Parameters
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| actorId | UUID | Yes | User ID |
+
+Response: daftar `AuditLogResponse` seperti `GET /api/audit`, difilter per actor, urut descending by `createdAt`.
+
+### Daftar `action` yang tercatat
+| action | Kapan dicatat |
+|---|---|
+| REGISTER | User baru mendaftar |
+| LOGIN / LOGIN_FAILED | Login sukses / gagal |
+| CREATE | Buat event, order, refund, reschedule |
+| PAYMENT | Pembayaran order sukses |
+| CHECK_IN | Tiket discan / redeemed |
+| EXPIRE | Order otomatis kedaluwarsa |
+| UPDATE | Ubah setting |
+| REVIEW | Refund disetujui / ditolak |
+| TRANSFER | Dana refund ditransfer |
+| APPROVE / REJECT | Reschedule/refund diACC / ditolak |
 
 ---
 
@@ -511,16 +729,43 @@ atau
        ▼                  ▼                   ▼
   REDEEMED           SUCCESS             PENDING → EXPIRED
                                             (configurable)
+
+            Refund Flow (SUCCESS order)
+┌─────────────┐    ┌──────────────┐    ┌────────────┐
+│ Customer     │    │ Super Admin   │    │  Admin      │
+│ POST /refunds│───▶│ approve/reject│───▶│ markRefunded│
+└─────────────┘    └──────────────┘    └────────────┘
+
+          Reschedule Flow (perubahan jadwal)
+┌─────────────┐    ┌──────────────┐
+│ EO           │    │ Super Admin   │
+│ POST /resched│───▶│ approve/reject│───▶ update Event dates
+└─────────────┘    └──────────────┘
+
+          Audit Trail (super admin monitoring)
+        GET /api/audit  /  GET /api/audit/actor/{actorId}
+        -> semua aktifitas login, order, pay, scan,
+           settings, refund, reschedule
 ```
+
+Visualisasi tambahan (diagram alur):
+1. **Refund**: customer yang punya order SUCCESS mengajukan refund via `POST /api/refunds` (isi `orderId`, `customerId`, bank, reason) → super admin lihat semua via `GET /api/refunds` → setuju/tolak (`approve`/`reject`) → tandai dana terkirim (`refunded`)
+2. **Reschedule**: EO ajukan tanggal baru via `POST /api/reschedules` → super admin ACC → tanggal event terganti otomatis; tolak → event tetap
+3. **Audit**: setiap aksi penting (login, register, buat event/order, bayar, scan, ubah setting, refund, reschedule, auto-expire) tercatat di `audit_logs`, bisa dilihat super admin
+
+Cron Job `OrderScheduler` tetap jalan tiap 60 detik — order PENDING lewat `expiredAt` jadi `EXPIRED`, kuota tiket dikembalikan.
 
 ---
 
 ## Notes for Frontend
 
-1. **Tidak ada Authentication** - Semua endpoint bisa diakses tanpa token
+1. **Tidak ada Authentication** - Semua endpoint bisa diakses tanpa token (sementara, belum production)
 2. **Format DateTime** - Gunakan format ISO: `yyyy-MM-dd'T'HH:mm:ss`
 3. **UUID** - Semua ID menggunakan UUID v4
 4. **Admin Fee** - Bisa diubah via `PUT /api/settings/ADMIN_FEE` (default Rp 5.000)
 5. **Order Expiry** - Bisa diubah via `PUT /api/settings/ORDER_EXPIRY_MINUTES` (default 15 menit)
 6. **Cron Job** - Server otomatis cancel order expired setiap 60 detik
 7. **Settings API** - Untuk admin panel, gunakan `/api/settings` untuk kelola konfigurasi
+8. **Refund** - Customer ajukan via `POST /api/refunds`; super admin kelola via `approve`/`reject`/`refunded`
+9. **Reschedule** - EO ajukan via `POST /api/reschedules`; super admin `approve`/`reject` (approve otomatis update tanggal event)
+10. **Audit Trail** - `GET /api/audit` untuk super admin melihat semua aktifitas; `GET /api/audit/actor/{actorId}` per user

@@ -1,5 +1,6 @@
 package com.example.eventday.service;
 
+import com.example.eventday.dto.TicketResponse;
 import com.example.eventday.entity.Order;
 import com.example.eventday.entity.TicketItem;
 import com.example.eventday.repository.TicketItemRepository;
@@ -15,9 +16,10 @@ import java.util.UUID;
 public class TicketService {
 
     private final TicketItemRepository ticketItemRepository;
+    private final AuditLogService auditLogService;
 
     @Transactional
-    public TicketItem scanTicket(UUID ticketItemId) {
+    public TicketResponse scanTicket(UUID ticketItemId) {
         TicketItem ticket = ticketItemRepository.findById(ticketItemId)
                 .orElseThrow(() -> new RuntimeException("Tiket tidak valid / Tidak ditemukan!"));
 
@@ -32,6 +34,23 @@ public class TicketService {
         ticket.setCheckInStatus(TicketItem.CheckInStatus.REDEEMED);
         ticket.setCheckInAt(LocalDateTime.now());
 
-        return ticketItemRepository.save(ticket);
+        TicketItem savedTicket = ticketItemRepository.save(ticket);
+
+        auditLogService.log(null, "Scanner", "CHECK_IN", "TICKET",
+                savedTicket.getTicketItemId().toString(),
+                "Check-in " + savedTicket.getTicketCode() + " atas nama " + savedTicket.getAttendeeName());
+
+        return TicketResponse.builder()
+                .ticketItemId(savedTicket.getTicketItemId())
+                .orderId(savedTicket.getOrder().getOrderId())
+                .orderNumber(savedTicket.getOrder().getOrderNumber())
+                .tierId(savedTicket.getTier().getTierId())
+                .tierName(savedTicket.getTier().getTierName())
+                .ticketCode(savedTicket.getTicketCode())
+                .attendeeName(savedTicket.getAttendeeName())
+                .attendeeNik(savedTicket.getAttendeeNik())
+                .checkInStatus(savedTicket.getCheckInStatus())
+                .checkInAt(savedTicket.getCheckInAt())
+                .build();
     }
 }

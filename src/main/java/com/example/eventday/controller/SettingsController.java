@@ -1,6 +1,6 @@
 package com.example.eventday.controller;
 
-import com.example.eventday.entity.Settings;
+import com.example.eventday.dto.SettingsResponse;
 import com.example.eventday.service.SettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,7 +17,7 @@ public class SettingsController {
     private final SettingsService settingsService;
 
     @GetMapping
-    public ResponseEntity<List<Settings>> getAllSettings() {
+    public ResponseEntity<List<SettingsResponse>> getAllSettings() {
         return ResponseEntity.ok(settingsService.getAllSettings());
     }
 

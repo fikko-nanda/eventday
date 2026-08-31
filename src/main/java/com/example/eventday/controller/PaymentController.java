@@ -1,5 +1,6 @@
 package com.example.eventday.controller;
 
+import com.example.eventday.dto.PaymentResponse;
 import com.example.eventday.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,7 +18,8 @@ public class PaymentController {
     @PostMapping("/pay/{orderId}")
     public ResponseEntity<?> pay(@PathVariable UUID orderId, @RequestParam String paymentMethod) {
         try {
-            return ResponseEntity.ok(paymentService.payOrder(orderId, paymentMethod));
+            PaymentResponse response = paymentService.payOrder(orderId, paymentMethod);
+            return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
