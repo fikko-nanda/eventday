@@ -1,5 +1,6 @@
 package com.example.eventday.controller;
 
+import com.example.eventday.dto.TicketResponse;
 import com.example.eventday.service.TicketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,7 +18,8 @@ public class TicketController {
     @PostMapping("/scan/{ticketItemId}")
     public ResponseEntity<?> scanTicket(@PathVariable UUID ticketItemId) {
         try {
-            return ResponseEntity.ok(ticketService.scanTicket(ticketItemId));
+            TicketResponse response = ticketService.scanTicket(ticketItemId);
+            return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

@@ -16,39 +16,57 @@
 |---|---|
 | `spring-boot-starter-data-jpa` | ORM & database access |
 | `spring-boot-starter-webmvc` | REST API endpoints |
+| `spring-boot-starter-validation` | Bean validation (DTO constraints) |
+| `spring-boot-starter-security` | Security (PasswordEncoder / BCrypt) |
 | `postgresql` | Database driver |
-| `lombok` | Boilerplate reduction (ombok) |
+| `lombok` | Boilerplate reduction |
+| `spring-boot-starter-data-jpa-test` | Test (test scope) |
+| `spring-boot-starter-webmvc-test` | MVC test (test scope) |
+| `spring-security-test` | Security test (test scope) |
 
 ## Project Structure
 
 ```
 src/main/java/com/example/eventday/
 ├── EventdayApplication.java          # Entry point, @EnableScheduling
-├── controller/                        # REST API layer
-│   ├── AuthController.java           # /api/auth/*
-│   ├── EventController.java          # /api/events/*
-│   ├── OrderController.java          # /api/orders/*
-│   ├── PaymentController.java        # /api/payments/*
-│   ├── SettingsController.java       # /api/settings/*
-│   └── TicketController.java         # /api/tickets/*
-├── dto/                              # Data Transfer Objects
+├── config/                          # Security configuration
+│   └── SecurityConfig.java          # BCrypt PasswordEncoder, Spring Security filter chain (permitAll)
+├── controller/                       # REST API layer
+│   ├── AuthController.java          # /api/auth/*
+│   ├── EventController.java         # /api/events/*
+│   ├── OrderController.java         # /api/orders/*
+│   ├── PaymentController.java       # /api/payments/*
+│   ├── SettingsController.java      # /api/settings/*
+│   ├── TicketController.java        # /api/tickets/*
+│   ├── RefundController.java        # /api/refunds/*
+│   ├── RescheduleController.java    # /api/reschedules/*
+│   └── AuditController.java         # /api/audit/*
+├── dto/                             # Data Transfer Objects
 │   ├── RegisterRequest.java
 │   ├── LoginRequest.java
 │   ├── AuthResponse.java
 │   ├── CreateEventRequest.java
 │   ├── EventResponse.java
-│   └── CreateOrderRequest.java
-├── entity/                           # JPA entities
-│   ├── User.java                     # Table: users
-│   ├── Event.java                    # Table: events
-│   ├── TicketTier.java               # Table: ticket_tiers
-│   ├── TicketItem.java               # Table: ticket_items
-│   ├── Order.java                    # Table: orders
-│   ├── Payment.java                  # Table: payments
-│   ├── RefundRequest.java            # Table: refund_requests
-│   ├── RescheduleRequest.java        # Table: reschedule_requests
-│   └── Settings.java                 # Table: settings
-├── repository/                       # Spring Data JPA repositories
+│   ├── CreateOrderRequest.java
+│   ├── OrderResponse.java
+│   ├── PaymentResponse.java
+│   ├── TicketResponse.java
+│   ├── SettingsResponse.java
+│   ├── RefundRequestDto.java
+│   ├── RescheduleRequestDto.java
+│   └── AuditLogResponse.java
+├── entity/                          # JPA entities
+│   ├── User.java                    # Table: users
+│   ├── Event.java                   # Table: events
+│   ├── TicketTier.java              # Table: ticket_tiers
+│   ├── TicketItem.java              # Table: ticket_items
+│   ├── Order.java                   # Table: orders
+│   ├── Payment.java                 # Table: payments
+│   ├── RefundRequest.java           # Table: refund_requests
+│   ├── RescheduleRequest.java       # Table: reschedule_requests
+│   ├── Settings.java                # Table: settings
+│   └── AuditLog.java                # Table: audit_logs
+├── repository/                      # Spring Data JPA repositories
 │   ├── UserRepository.java
 │   ├── EventRepository.java
 │   ├── TicketTierRepository.java
@@ -57,16 +75,37 @@ src/main/java/com/example/eventday/
 │   ├── PaymentRepository.java
 │   ├── RefundRequestRepository.java
 │   ├── RescheduleRequestRepository.java
-│   └── SettingsRepository.java
-└── service/                          # Business logic layer
+│   ├── SettingsRepository.java
+│   └── AuditLogRepository.java
+└── service/                         # Business logic layer
     ├── AuthService.java
     ├── EventService.java
     ├── OrderService.java
     ├── PaymentService.java
     ├── SettingsService.java
     ├── TicketService.java
-    └── OrderScheduler.java           # Cron job: auto-cancel expired orders
+    ├── RefundService.java
+    ├── RescheduleService.java
+    ├── AuditLogService.java
+    └── OrderScheduler.java          # Cron job: auto-cancel expired orders (every 60s)
 ```
+
+## Database Schema
+
+Tabel (auto-dibuat oleh `ddl-auto=update`):
+
+| Table | Key | Note |
+|---|---|---|
+| `users` | `user_id` UUID | `email` unique, `nik` unique, password di-BCrypt |
+| `events` | `event_id` UUID | FK `organizer_id` → users, status DRAFT/PUBLISHED/CANCELLED/CLOSED |
+| `ticket_tiers` | `tier_id` UUID | FK `event_id` → events, `@Version` optimistic lock (anti overselling) |
+| `ticket_items` | `ticket_item_id` UUID | FK `order_id` → orders, FK `tier_id` → ticket_tiers, `ticket_code` unique, index NIK+tier |
+| `orders` | `order_id` UUID | FK `customer_id` → users, FK `event_id` → events, `order_number` unique |
+| `payments` | `payment_id` UUID | FK `order_id` → orders (unique, One-to-One) |
+| `refund_requests` | `refund_id` UUID | FK `order_id`, FK `customer_id` |
+| `reschedule_requests` | `reschedule_id` UUID | FK `event_id` |
+| `settings` | `setting_key` (String PK) | Key-value config |
+| `audit_logs` | `audit_id` UUID | actor, action, entity, detail, timestamp |
 
 ## API Endpoints
 
@@ -105,6 +144,29 @@ src/main/java/com/example/eventday/
 |---|---|---|
 | POST | `/api/tickets/scan/{ticketItemId}` | Check-in / redeem ticket |
 
+### Refunds (`/api/refunds`)
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/refunds` | Customer ajukan refund order SUCCESS |
+| GET | `/api/refunds` | Semua pengajuan refund (super admin) |
+| PUT | `/api/refunds/{refundId}/approve` | Admin setujui refund |
+| PUT | `/api/refunds/{refundId}/reject?note=...` | Admin tolak refund |
+| PUT | `/api/refunds/{refundId}/refunded` | Admin tandai dana sudah ditransfer |
+
+### Reschedules (`/api/reschedules`)
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/reschedules` | EO ajukan jadwal baru event |
+| PUT | `/api/reschedules/{rescheduleId}/approve` | Super admin ACC → tanggal event diupdate |
+| PUT | `/api/reschedules/{rescheduleId}/reject` | Super admin tolak |
+| GET | `/api/reschedules` | Semua pengajuan reschedule |
+
+### Audit (`/api/audit`)
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/audit` | Semua log aktifitas (super admin) |
+| GET | `/api/audit/actor/{actorId}` | Log aktifitas per user |
+
 ## Database Configuration
 
 ```properties
@@ -121,12 +183,16 @@ spring.jpa.hibernate.ddl-auto=update
 3. **Ticket Check-in**: Scan ticket by `ticketItemId`, validates order is SUCCESS and ticket not yet redeemed
 4. **Admin Fee**: Configurable via Settings API (default Rp 5.000 per order)
 5. **Settings**: Admin fee and order expiry stored in database `settings` table, can be updated via API
+6. **Refund Flow**: Customer submits refund for SUCCESS order (set `customer`, `refundAmount` auto = order total) -> admin approve/reject -> admin mark refunded
+7. **Reschedule Flow**: EO submits new dates -> admin approve updates event start/end date, reject leaves event unchanged
+8. **Audit Trail**: `AuditLogService.log()` records actor, action, entity, detail on every key operation (login, register, order, payment, check-in, settings update, refund, reschedule, auto-expire)
 
 ## Known Issues
 
-1. **No Authentication/Authorization**: No Spring Security, no JWT - all endpoints are open
-2. **Plain Text Passwords**: No BCrypt or hashing - passwords stored as-is
-3. **Incomplete Features**: `RefundRequest` and `RescheduleRequest` entities exist but have no controllers/services wired up
+1. **No Authentication/Authorization**: `SecurityConfig` uses `anyRequest().permitAll()` - no JWT, all endpoints (incl. refund/reject/audit) are open. Super admin endpoints rely on hardcoded actor names.
+2. **Mock Payment Gateway**: `PaymentService.payOrder()` hardcodes SUCCESS payment status with fake `TRX-GW-...` - no real gateway integration
+3. **Incomplete Refund/Reschedule DTO Validation**: `RefundRequestDto.customerId` has no `@NotNull` - null causes 500 instead of clean 400
+4. **Config Duplication**: Admin fee/expiry defined both in `application.properties` (unused fallback) and `settings` table (source of truth)
 
 ## Code Conventions
 

@@ -1,5 +1,6 @@
 package com.example.eventday.service;
 
+import com.example.eventday.dto.PaymentResponse;
 import com.example.eventday.entity.Order;
 import com.example.eventday.entity.Payment;
 import com.example.eventday.repository.OrderRepository;
@@ -17,9 +18,10 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderRepository orderRepository;
+    private final AuditLogService auditLogService;
 
     @Transactional
-    public Payment payOrder(UUID orderId, String paymentMethod) {
+    public PaymentResponse payOrder(UUID orderId, String paymentMethod) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order tidak ditemukan!"));
 
@@ -27,11 +29,17 @@ public class PaymentService {
             throw new RuntimeException("Order sudah tidak valid atau kedaluwarsa!");
         }
 
-        // Ubah Status Order menjadi SUCCESS
+        if (order.getExpiredAt().isBefore(LocalDateTime.now())) {
+            throw new RuntimeException("Order sudah kedaluwarsa!");
+        }
+
+        if (paymentRepository.findByOrderOrderId(orderId).isPresent()) {
+            throw new RuntimeException("Order ini sudah memiliki pembayaran!");
+        }
+
         order.setStatus(Order.OrderStatus.SUCCESS);
         orderRepository.save(order);
 
-        // Catat Pembayaran
         Payment payment = Payment.builder()
                 .order(order)
                 .paymentMethod(paymentMethod)
@@ -40,6 +48,19 @@ public class PaymentService {
                 .paidAt(LocalDateTime.now())
                 .build();
 
-        return paymentRepository.save(payment);
+        Payment savedPayment = paymentRepository.save(payment);
+
+        auditLogService.log(order.getCustomer().getUserId(), order.getCustomer().getName(), "PAYMENT", "ORDER",
+                order.getOrderId().toString(), "Pembayaran sukses " + order.getOrderNumber() + " via " + paymentMethod);
+
+        return PaymentResponse.builder()
+                .paymentId(savedPayment.getPaymentId())
+                .orderId(order.getOrderId())
+                .orderNumber(order.getOrderNumber())
+                .paymentMethod(savedPayment.getPaymentMethod())
+                .paymentStatus(savedPayment.getPaymentStatus())
+                .transactionIdGateway(savedPayment.getTransactionIdGateway())
+                .paidAt(savedPayment.getPaidAt())
+                .build();
     }
 }

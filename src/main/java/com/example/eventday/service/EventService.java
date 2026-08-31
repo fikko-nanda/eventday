@@ -19,30 +19,36 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
+    private final AuditLogService auditLogService;
 
     public EventResponse createEvent(CreateEventRequest request) {
         User organizer = userRepository.findById(request.getOrganizerId())
                 .orElseThrow(() -> new RuntimeException("Organizer tidak ditemukan!"));
 
-   
-            String facilityString = (request.getFacility() != null && !request.getFacility().isEmpty())
-                    ? String.join(", ", request.getFacility())
-                    : null;
+        if (organizer.getRole() != User.Role.ORGANIZER && organizer.getRole() != User.Role.ADMIN) {
+            throw new RuntimeException("Hanya organizer atau admin yang bisa membuat event!");
+        }
 
-            Event event = Event.builder()
-                    .organizer(organizer)
-                    .title(request.getTitle())
-                    .description(request.getDescription())
-                    .category(request.getCategory())
-                    .venueName(request.getVenueName())
-                    .bannerUrl(request.getBannerUrl())
-                    .startDate(request.getStartDate())
-                    .endDate(request.getEndDate())
-                    .facility(facilityString) // Disimpan sebagai String: "WiFi, AC, VIP Parking"
-                    .status(Event.EventStatus.PUBLISHED)
-                    .build();
+        String facilityString = (request.getFacility() != null && !request.getFacility().isEmpty())
+                ? String.join(", ", request.getFacility())
+                : null;
+
+        Event event = Event.builder()
+                .organizer(organizer)
+                .title(request.getTitle())
+                .description(request.getDescription())
+                .category(request.getCategory())
+                .venueName(request.getVenueName())
+                .bannerUrl(request.getBannerUrl())
+                .startDate(request.getStartDate())
+                .endDate(request.getEndDate())
+                .facility(facilityString)
+                .status(Event.EventStatus.PUBLISHED)
+                .build();
 
         Event savedEvent = eventRepository.save(event);
+        auditLogService.log(organizer.getUserId(), organizer.getName(), "CREATE", "EVENT",
+                savedEvent.getEventId().toString(), "Buat event baru: " + savedEvent.getTitle());
         return mapToResponse(savedEvent);
     }
 
@@ -56,6 +62,11 @@ public class EventService {
     public EventResponse getEventById(UUID eventId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("Event tidak ditemukan!"));
+
+        if (event.getStatus() != Event.EventStatus.PUBLISHED) {
+            throw new RuntimeException("Event tidak ditemukan!");
+        }
+
         return mapToResponse(event);
     }
 

@@ -1,5 +1,6 @@
 package com.example.eventday.service;
 
+import com.example.eventday.dto.SettingsResponse;
 import com.example.eventday.entity.Settings;
 import com.example.eventday.repository.SettingsRepository;
 import lombok.RequiredArgsConstructor;
@@ -8,12 +9,14 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class SettingsService {
 
     private final SettingsRepository settingsRepository;
+    private final AuditLogService auditLogService;
 
     @PostConstruct
     public void initDefaultSettings() {
@@ -32,26 +35,40 @@ public class SettingsService {
         }
     }
 
-    public List<Settings> getAllSettings() {
-        return settingsRepository.findAll();
+    public List<SettingsResponse> getAllSettings() {
+        return settingsRepository.findAll()
+                .stream()
+                .map(s -> SettingsResponse.builder()
+                        .settingKey(s.getSettingKey())
+                        .settingValue(s.getSettingValue())
+                        .description(s.getDescription())
+                        .build())
+                .collect(Collectors.toList());
     }
 
-    public Settings getSetting(String key) {
-        return settingsRepository.findBySettingKey(key)
+    public SettingsResponse getSetting(String key) {
+        Settings setting = settingsRepository.findBySettingKey(key)
                 .orElseThrow(() -> new RuntimeException("Setting tidak ditemukan: " + key));
+        return SettingsResponse.builder()
+                .settingKey(setting.getSettingKey())
+                .settingValue(setting.getSettingValue())
+                .description(setting.getDescription())
+                .build();
     }
 
     public BigDecimal getAdminFee() {
-        Settings setting = getSetting("ADMIN_FEE");
+        Settings setting = settingsRepository.findBySettingKey("ADMIN_FEE")
+                .orElseThrow(() -> new RuntimeException("Setting ADMIN_FEE tidak ditemukan!"));
         return new BigDecimal(setting.getSettingValue());
     }
 
     public int getExpiryMinutes() {
-        Settings setting = getSetting("ORDER_EXPIRY_MINUTES");
+        Settings setting = settingsRepository.findBySettingKey("ORDER_EXPIRY_MINUTES")
+                .orElseThrow(() -> new RuntimeException("Setting ORDER_EXPIRY_MINUTES tidak ditemukan!"));
         return Integer.parseInt(setting.getSettingValue());
     }
 
-    public Settings updateSetting(String key, String value, String description) {
+    public SettingsResponse updateSetting(String key, String value, String description) {
         Settings setting = settingsRepository.findBySettingKey(key)
                 .orElseThrow(() -> new RuntimeException("Setting tidak ditemukan: " + key));
 
@@ -60,6 +77,14 @@ public class SettingsService {
             setting.setDescription(description);
         }
 
-        return settingsRepository.save(setting);
+        Settings saved = settingsRepository.save(setting);
+
+        auditLogService.log(null, "Admin", "UPDATE", "SETTING", key, "Ubah setting " + key + " ke " + value);
+
+        return SettingsResponse.builder()
+                .settingKey(saved.getSettingKey())
+                .settingValue(saved.getSettingValue())
+                .description(saved.getDescription())
+                .build();
     }
 }
