@@ -2,38 +2,39 @@ package com.example.eventday.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "ticket_tiers")
+@Table(name = "bookings")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class TicketTier {
+public class Booking {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "tier_id", updatable = false, nullable = false)
-    private UUID tierId;
+    @Column(name = "booking_id", updatable = false, nullable = false)
+    private UUID bookingId;
 
     @ManyToOne
-    @JoinColumn(name = "event_id", nullable = false)
-    private Event event;
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    @Column(name = "tier_name", nullable = false, length = 50, columnDefinition = "VARCHAR(50)")
-    private String tierName;
+    @ManyToOne
+    @JoinColumn(name = "tier_id", nullable = false)
+    private TicketTier tier;
 
-    @Column(nullable = false, precision = 12, scale = 2)
-    private BigDecimal price;
+    @Column(nullable = false)
+    private Integer quantity;
 
-    @Column(name = "total_quota", nullable = false)
-    private Integer totalQuota;
+    @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
+    @Builder.Default
+    private String status = "PENDING";
 
-    @Column(name = "available_quota", nullable = false)
-    private Integer availableQuota;
+    @Column(name = "expires_at", nullable = false)
+    private LocalDateTime expiresAt;
 
     @Column(name = "created_at", updatable = false)
     @Builder.Default

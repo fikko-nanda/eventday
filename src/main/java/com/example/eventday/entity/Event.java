@@ -20,7 +20,7 @@ public class Event {
 
     @ManyToOne
     @JoinColumn(name = "organizer_id", nullable = false)
-    private User organizer;
+    private Organizer organizer;
 
     @Column(nullable = false, length = 150, columnDefinition = "VARCHAR(150)")
     private String title;
@@ -37,25 +37,30 @@ public class Event {
     @Column(name = "banner_url", columnDefinition = "VARCHAR(255)")
     private String bannerUrl;
 
+    @Column(name = "facility", columnDefinition = "TEXT")
+    private String facility;
+
     @Column(name = "start_date", nullable = false)
     private LocalDateTime startDate;
 
     @Column(name = "end_date", nullable = false)
     private LocalDateTime endDate;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "VARCHAR(255)")
+    @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
     @Builder.Default
-    private EventStatus status = EventStatus.DRAFT;
+    private String status = "DRAFT";
 
     @Column(name = "created_at", updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    @Column(name = "facility", columnDefinition = "TEXT")
-    private String facility;
-    
-    public enum EventStatus {
-        DRAFT, PUBLISHED, CANCELLED, CLOSED
-    }
+    @Column(name = "create_by")
+    private UUID createBy;
+
+    @Column(name = "updated_at")
+    @Builder.Default
+    private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Column(name = "updated_by")
+    private UUID updatedBy;
 }

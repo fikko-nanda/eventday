@@ -21,22 +21,16 @@ public class AuditLog {
     @Column(name = "actor_id")
     private UUID actorId;
 
-    @Column(name = "actor_name", length = 100)
+    @Column(name = "actor_name", length = 100, columnDefinition = "VARCHAR(100)")
     private String actorName;
 
-    @Column(nullable = false, length = 50)
+    @Column(nullable = false, length = 100, columnDefinition = "VARCHAR(100)")
     private String action;
-
-    @Column(name = "entity_type", length = 50)
-    private String entityType;
-
-    @Column(name = "entity_id")
-    private String entityId;
 
     @Column(columnDefinition = "TEXT")
     private String detail;
 
-    @Column(nullable = false, updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 }

@@ -2,11 +2,15 @@
 
 Base URL: `http://localhost:8081`
 
+> **Status:** Hanya modul **Auth** yang aktif. Modul lain (Events, Orders, Payments, Tickets, Settings, Refunds, Reschedules, Audit) masih **SCHEMA ONLY** — tabel & entity sudah siap, endpoint belum di-expose. Dokumen di bawah hanya menjelaskan yang sudah bisa dipakai.
+
 ---
 
 ## 1. Auth - Register
 
-**POST** `/api/auth/register`
+**POST** `/api/v1/auth/register`
+
+> Alias lama `/api/auth/register` masih di-permitAll untuk backward compat, tapi gunakan `/api/v1/auth/register`.
 
 ### Request Body
 ```json
@@ -22,12 +26,14 @@ Base URL: `http://localhost:8081`
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| name | String | Yes | Max 100 chars |
-| email | String | Yes | Unique |
-| phone | String | Yes | Max 20 chars |
-| password | String | Yes | Min 6 chars |
-| role | Enum | No | CUSTOMER (default), ORGANIZER, ADMIN |
-| nik | String | No | 16 digit, Unique |
+| name | String | Yes | Max 100 chars, @NotBlank |
+| email | String | Yes | Unique, @Email |
+| phone | String | No | Max 15 chars |
+| password | String | Yes | Min 6 chars, di-hash BCrypt ke tabel `auth` |
+| role | String | No | CUSTOMER (default), ORGANIZER, ADMIN — case-insensitive, fallback CUSTOMER |
+| nik | String | No | 16 digit angka (`\\d{16}`), Unique jika diisi |
+
+Flow (`AuthService.java:29`): validasi DTO → `existsByEmail`/`existsByNik` → `users` insert → `auth` insert (`status=INACTIVE`, `password` hash) → audit `REGISTER`.
 
 ### Response (200 OK)
 ```json
@@ -36,24 +42,36 @@ Base URL: `http://localhost:8081`
   "userId": "550e8400-e29b-41d4-a716-446655440000",
   "name": "John Doe",
   "email": "john@example.com",
-  "role": "CUSTOMER"
+  "role": "CUSTOMER",
+  "token": null,
+  "expiresIn": null
 }
 ```
 
 ### Response (400 Bad Request)
+String biasa (bukan JSON object) dari `catch RuntimeException`:
 ```json
 "Email sudah terdaftar!"
 ```
-atau
 ```json
 "NIK sudah terdaftar!"
+```
+Validasi bean (`@Valid`) juga return 400 dengan detail field error (Spring default).
+
+### Contoh cURL
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"John","email":"john@example.com","password":"secret123","role":"CUSTOMER"}'
 ```
 
 ---
 
 ## 2. Auth - Login
 
-**POST** `/api/auth/login`
+**POST** `/api/v1/auth/login`
+
+Flow (`AuthService.java:74`): cari `users` by email → ambil `auth` by `user_id` → `passwordEncoder.matches` → generate JWT (`JwtUtil.java:18` claim userId/email/role, HS256, 86400000ms) → update `auth.akses_token`, `expired_token`, `status=ACTIVE` → audit `LOGIN`.
 
 ### Request Body
 ```json
@@ -63,6 +81,11 @@ atau
 }
 ```
 
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| email | String | Yes | @Email |
+| password | String | Yes | @NotBlank |
+
 ### Response (200 OK)
 ```json
 {
@@ -70,702 +93,156 @@ atau
   "userId": "550e8400-e29b-41d4-a716-446655440000",
   "name": "John Doe",
   "email": "john@example.com",
-  "role": "CUSTOMER"
+  "role": "CUSTOMER",
+  "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI1NTBl...",
+  "expiresIn": 86400
 }
 ```
+`expiresIn` dalam **detik** (86400 = 24 jam). `token` simpan di client (header `Authorization: Bearer <token>` untuk request berikutnya).
 
 ### Response (400 Bad Request)
 ```json
 "Email atau password salah!"
 ```
+Juga tercatat audit `LOGIN_FAILED` jika password salah.
 
----
-
-## 3. Events - Create Event
-
-**POST** `/api/events`
-
-### Request Body
-```json
-{
-  "organizerId": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Konser BTS",
-  "description": "Konser BTS di Jakarta",
-  "category": "Musik",
-  "venueName": "GBK Senayan",
-  "bannerUrl": "https://example.com/banner.jpg",
-  "startDate": "2025-12-25T19:00:00",
-  "endDate": "2025-12-25T23:00:00"
-}
-```
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| organizerId | UUID | Yes | User ID organizer |
-| title | String | Yes | Max 150 chars |
-| description | String | No | Text |
-| category | String | No | Max 50 chars |
-| venueName | String | No | Max 150 chars |
-| bannerUrl | String | No | URL gambar |
-| startDate | DateTime | Yes | Format: yyyy-MM-dd'T'HH:mm:ss |
-| endDate | DateTime | Yes | Harus setelah startDate |
-
-### Response (200 OK)
-```json
-{
-  "eventId": "660e8400-e29b-41d4-a716-446655440000",
-  "organizerId": "550e8400-e29b-41d4-a716-446655440000",
-  "organizerName": "John Doe",
-  "title": "Konser BTS",
-  "description": "Konser BTS di Jakarta",
-  "category": "Musik",
-  "venueName": "GBK Senayan",
-  "bannerUrl": "https://example.com/banner.jpg",
-  "startDate": "2025-12-25T19:00:00",
-  "endDate": "2025-12-25T23:00:00",
-  "status": "PUBLISHED"
-}
+### Contoh cURL
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"john@example.com","password":"secret123"}'
 ```
 
 ---
 
-## 4. Events - Get All Published Events
+## 3. Middleware JWT Authentication
 
-**GET** `/api/events`
+Semua endpoint selain `/api/v1/auth/**` (dan alias `/api/auth/**`) sekarang **butuh JWT** (`SecurityConfig.java:20` → `anyRequest().authenticated()`, `STATELESS`).
 
-### Response (200 OK)
-```json
-[
-  {
-    "eventId": "660e8400-e29b-41d4-a716-446655440000",
-    "organizerId": "550e8400-e29b-41d4-a716-446655440000",
-    "organizerName": "John Doe",
-    "title": "Konser BTS",
-    "description": "Konser BTS di Jakarta",
-    "category": "Musik",
-    "venueName": "GBK Senayan",
-    "bannerUrl": "https://example.com/banner.jpg",
-    "startDate": "2025-12-25T19:00:00",
-    "endDate": "2025-12-25T23:00:00",
-    "status": "PUBLISHED"
-  },
-  {
-    "eventId": "770e8400-e29b-41d4-a716-446655440000",
-    "organizerId": "550e8400-e29b-41d4-a716-446655440000",
-    "organizerName": "John Doe",
-    "title": "Festival Musik",
-    "description": "Festival musik terbesar",
-    "category": "Festival",
-    "venueName": "Jakarta International Expo",
-    "bannerUrl": "https://example.com/banner2.jpg",
-    "startDate": "2025-12-31T18:00:00",
-    "endDate": "2025-12-31T23:59:00",
-    "status": "PUBLISHED"
-  }
-]
+**Implementasi** (`JwtAuthenticationFilter.java:15`):
+- Cek header `Authorization: Bearer <token>`
+- `JwtUtil.validateToken()` — cek signature HS256 & expiry
+- `JwtUtil.getUserId/email/role` — parse claims
+- DB check: `authRepository.findByUserUserId(userId)` → harus `status=ACTIVE` & `akses_token == token` (mendukung invalidasi via logout)
+- Set `SecurityContextHolder` dengan `ROLE_<role>`
+
+**Cara pakai di client:**
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8081/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"john@example.com","password":"secret123"}' | jq -r .token)
+
+# contoh request protected (akan 200 jika token valid, 403 jika tidak)
+curl http://localhost:8081/api/v1/protected-example \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Error tanpa/cacat token:**
+- Tanpa header → `403 Forbidden` (atau `401` tergantung Spring Security)
+- Token expired / signature salah / sudah logout (`status=INACTIVE`) → filter skip auth → `403`
+
+**Logout (internal, belum ada endpoint):** `AuthService.logout(userId)` — null-kan `akses_token/expired_token`, set `INACTIVE`. Bisa di-expose jadi `POST /api/v1/auth/logout` di tahap berikutnya.
+
+**Konfigurasi JWT** (`application.properties`):
+```properties
+jwt.secret=eventday-super-secret-key-min-32-chars-change-in-production-123456
+jwt.expiration-ms=86400000
 ```
 
 ---
 
-## 5. Events - Get Event By ID
-
-**GET** `/api/events/{eventId}`
-
-### Response (200 OK)
-```json
-{
-  "eventId": "660e8400-e29b-41d4-a716-446655440000",
-  "organizerId": "550e8400-e29b-41d4-a716-446655440000",
-  "organizerName": "John Doe",
-  "title": "Konser BTS",
-  "description": "Konser BTS di Jakarta",
-  "category": "Musik",
-  "venueName": "GBK Senayan",
-  "bannerUrl": "https://example.com/banner.jpg",
-  "startDate": "2025-12-25T19:00:00",
-  "endDate": "2025-12-25T23:00:00",
-  "status": "PUBLISHED"
-}
-```
-
-### Response (400 Bad Request)
-```json
-"Event tidak ditemukan!"
-```
-
----
-
-## 6. Orders - Create Order
-
-**POST** `/api/orders`
-
-### Request Body
-```json
-{
-  "customerId": "550e8400-e29b-41d4-a716-446655440000",
-  "eventId": "660e8400-e29b-41d4-a716-446655440000",
-  "tierId": "880e8400-e29b-41d4-a716-446655440000",
-  "attendees": [
-    {
-      "name": "John Doe",
-      "nik": "3201234567890123"
-    },
-    {
-      "name": "Jane Doe",
-      "nik": "3201234567890124"
-    }
-  ]
-}
-```
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| customerId | UUID | Yes | User ID customer |
-| eventId | UUID | Yes | Event ID |
-| tierId | UUID | Yes | Ticket Tier ID |
-| attendees | Array | Yes | List attendees (min 1) |
-| attendees[].name | String | Yes | Nama attendee |
-| attendees[].nik | String | Yes | NIK attendee |
-
-### Response (200 OK)
-```json
-{
-  "orderId": "990e8400-e29b-41d4-a716-446655440000",
-  "orderNumber": "ORD-1703123456789",
-  "customerName": "John Doe",
-  "customerEmail": "john@example.com",
-  "eventId": "660e8400-e29b-41d4-a716-446655440000",
-  "eventTitle": "Konser BTS",
-  "totalAmount": 255000,
-  "adminFee": 5000,
-  "status": "PENDING",
-  "createdAt": "2025-12-20T10:00:00",
-  "expiredAt": "2025-12-20T10:15:00"
-}
-```
-
-### Response (400 Bad Request)
-```json
-"Customer tidak ditemukan!"
-```
-```json
-"Event tidak ditemukan!"
-```
-```json
-"Tier tidak ditemukan!"
-```
-```json
-"Melebihi batas maksimal pembelian tiket per user!"
-```
-```json
-"Kuota tiket tidak mencukupi!"
-```
-
-### Catatan Penting
-- Order akan otomatis **EXPIRED** setelah menit yang diatur di settings (default 15 menit)
-- Admin fee otomatis ditambahkan dari settings (default Rp 5.000)
-- Kedua nilai bisa diubah via API Settings
-
----
-
-## 7. Payments - Pay Order
-
-**POST** `/api/payments/pay/{orderId}?paymentMethod=BCA`
-
-### Query Parameters
-| Parameter | Type | Required | Notes |
-|---|---|---|---|
-| paymentMethod | String | Yes | BCA, BRI, MANDIRI, GOPAY, OVO, dll |
-
-### Response (200 OK)
-```json
-{
-  "paymentId": "aa0e8400-e29b-41d4-a716-446655440000",
-  "orderId": "990e8400-e29b-41d4-a716-446655440000",
-  "orderNumber": "ORD-1703123456789",
-  "paymentMethod": "BCA",
-  "paymentStatus": "SUCCESS",
-  "transactionIdGateway": "TRX-GW-a1b2c3d4",
-  "paidAt": "2025-12-20T10:05:00"
-}
-```
-
-### Response (400 Bad Request)
-```json
-"Order tidak ditemukan!"
-```
-```json
-"Order sudah tidak valid atau kedaluwarsa!"
-```
-
----
-
-## 8. Settings - Get All Settings
-
-**GET** `/api/settings`
-
-### Response (200 OK)
-```json
-[
-  {
-    "settingKey": "ADMIN_FEE",
-    "settingValue": "5000",
-    "description": "Admin fee per order (Rp)"
-  },
-  {
-    "settingKey": "ORDER_EXPIRY_MINUTES",
-    "settingValue": "15",
-    "description": "Order expiry time in minutes"
-  }
-]
-```
-
----
-
-## 9. Settings - Get Setting By Key
-
-**GET** `/api/settings/{key}`
-
-### Path Parameters
-| Parameter | Type | Required | Notes |
-|---|---|---|---|
-| key | String | Yes | ADMIN_FEE or ORDER_EXPIRY_MINUTES |
-
-### Response (200 OK)
-```json
-{
-  "settingKey": "ADMIN_FEE",
-  "settingValue": "5000",
-  "description": "Admin fee per order (Rp)"
-}
-```
-
-### Response (400 Bad Request)
-```json
-"Setting tidak ditemukan: INVALID_KEY"
-```
-
----
-
-## 10. Settings - Update Setting
-
-**PUT** `/api/settings/{key}`
-
-### Path Parameters
-| Parameter | Type | Required | Notes |
-|---|---|---|---|
-| key | String | Yes | ADMIN_FEE or ORDER_EXPIRY_MINUTES |
-
-### Request Body
-```json
-{
-  "value": "10000",
-  "description": "Admin fee dinaikkan"
-}
-```
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| value | String | Yes | Nilai baru |
-| description | String | No | Deskripsi (opsional) |
-
-### Response (200 OK)
-```json
-{
-  "settingKey": "ADMIN_FEE",
-  "settingValue": "10000",
-  "description": "Admin fee dinaikkan"
-}
-```
-
-### Response (400 Bad Request)
-```json
-"Setting tidak ditemukan: INVALID_KEY"
-```
-
----
-
-## 11. Tickets - Check-in / Scan Ticket
-
-**POST** `/api/tickets/scan/{ticketItemId}`
-
-### Response (200 OK)
-```json
-{
-  "ticketItemId": "bb0e8400-e29b-41d4-a716-446655440000",
-  "orderId": "990e8400-e29b-41d4-a716-446655440000",
-  "orderNumber": "ORD-1703123456789",
-  "tierId": "880e8400-e29b-41d4-a716-446655440000",
-  "tierName": "VIP",
-  "ticketCode": "TKT-a1b2c3d4",
-  "attendeeName": "John Doe",
-  "attendeeNik": "3201234567890123",
-  "checkInStatus": "REDEEMED",
-  "checkInAt": "2025-12-25T18:55:00"
-}
-```
-
-### Response (400 Bad Request)
-```json
-"Tiket tidak valid / Tidak ditemukan!"
-```
-```json
-"Tiket belum lunas / Pembayaran gagal!"
-```
-```json
-"Gagal: Tiket sudah pernah di-scan pada 2025-12-25T18:55:00"
-```
-
----
-
-## 12. Refunds - Create Refund Request
-
-**POST** `/api/refunds`
-
-### Request Body
-```json
-{
-  "orderId": "990e8400-e29b-41d4-a716-446655440000",
-  "customerId": "550e8400-e29b-41d4-a716-446655440000",
-  "reason": "Event dibatalkan",
-  "bankName": "BCA",
-  "bankAccountNumber": "1234567890",
-  "bankAccountName": "John Doe"
-}
-```
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| orderId | UUID | Yes | Order SUCCESS yang mau di-refund |
-| customerId | UUID | Yes | User ID customer pemilik order |
-| reason | String | Yes | Alasan refund |
-| bankName | String | Yes | Nama bank tujuan transfer |
-| bankAccountNumber | String | Yes | Nomor rekening tujuan |
-| bankAccountName | String | Yes | Nama pemilik rekening |
-
-### Response (200 OK)
-```json
-{
-  "refundId": "cc0e8400-e29b-41d4-a716-446655440000",
-  "orderId": "990e8400-e29b-41d4-a716-446655440000",
-  "customerId": "550e8400-e29b-41d4-a716-446655440000",
-  "reason": "Event dibatalkan",
-  "refundAmount": 255000,
-  "bankName": "BCA",
-  "bankAccountNumber": "1234567890",
-  "bankAccountName": "John Doe",
-  "status": "PENDING",
-  "requestedAt": "2025-12-21T09:00:00",
-  "processedAt": null
-}
-```
-
-`refundAmount` otomatis = `order.totalAmount`.
-
-### Response (400 Bad Request)
-```json
-"Hanya order berstatus SUCCESS yang bisa di-refund!"
-```
-```json
-"Order tidak ditemukan!"
-```
-
----
-
-## 13. Refunds - Get All Refund Requests
-
-**GET** `/api/refunds`
-
-### Response (200 OK)
-```json
-[
-  {
-    "refundId": "cc0e8400-e29b-41d4-a716-446655440000",
-    "orderId": "990e8400-e29b-41d4-a716-446655440000",
-    "reason": "Event dibatalkan",
-    "refundAmount": 255000,
-    "status": "PENDING",
-    "requestedAt": "2025-12-21T09:00:00"
-  }
-]
-```
-
----
-
-## 14. Refunds - Approve / Reject / Refunded (Super Admin)
-
-**PUT** `/api/refunds/{refundId}/approve`
-
-**PUT** `/api/refunds/{refundId}/reject?note=Bukti transfer tidak valid`
-
-**PUT** `/api/refunds/{refundId}/refunded`
-
-### Query Parameters (reject saja)
-| Parameter | Type | Required | Notes |
-|---|---|---|---|
-| note | String | No | Alasan penolakan |
-
-### Response (200 OK)
-```json
-{
-  "refundId": "cc0e8400-e29b-41d4-a716-446655440000",
-  "orderId": "990e8400-e29b-41d4-a716-446655440000",
-  "reason": "Event dibatalkan",
-  "refundAmount": 255000,
-  "status": "APPROVED",
-  "adminNote": null,
-  "processedAt": "2025-12-21T10:00:00"
-}
-```
-
-Status setelah aksi:
-- `approve` → status `APPROVED`
-- `reject` → status `REJECTED`, `adminNote` terisi
-- `refunded` → status `REFUNDED`
-
----
-
-## 15. Reschedules - Create Reschedule Request
-
-**POST** `/api/reschedules`
-
-### Request Body
-```json
-{
-  "eventId": "660e8400-e29b-41d4-a716-446655440000",
-  "newStartDate": "2026-01-15T19:00:00",
-  "newEndDate": "2026-01-15T23:00:00",
-  "reason": "Alasan penundaan konser"
-}
-```
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| eventId | UUID | Yes | Event yang dijadwal ulang |
-| newStartDate | DateTime | Yes | Tanggal baru, harus masa depan |
-| newEndDate | DateTime | Yes | Harus setelah newStartDate |
-| reason | String | Yes | Alasan reschedule |
-
-### Response (200 OK)
-```json
-{
-  "rescheduleId": "dd0e8400-e29b-41d4-a716-446655440000",
-  "eventId": "660e8400-e29b-41d4-a716-446655440000",
-  "newStartDate": "2026-01-15T19:00:00",
-  "newEndDate": "2026-01-15T23:00:00",
-  "reason": "Alasan penundaan konser",
-  "status": "PENDING",
-  "requestedAt": "2025-12-21T09:00:00"
-}
-```
-
-### Response (400 Bad Request)
-```json
-"Jadwal baru tidak boleh di masa lampau!"
-```
-```json
-"Tanggal selesai harus setelah tanggal mulai!"
-```
-
----
-
-## 16. Reschedules - Approve / Reject (Super Admin)
-
-**PUT** `/api/reschedules/{rescheduleId}/approve`
-
-**PUT** `/api/reschedules/{rescheduleId}/reject`
-
-**GET** `/api/reschedules`
-
-### Response (200 OK approve)
-```json
-{
-  "rescheduleId": "dd0e8400-e29b-41d4-a716-446655440000",
-  "newStartDate": "2026-01-15T19:00:00",
-  "newEndDate": "2026-01-15T23:00:00",
-  "status": "APPROVED"
-}
-```
-
-`approve` → tanggal event (startDate/endDate) otomatis diganti tanggal baru.
-
----
-
-## 17. Audit - Get All Logs (Super Admin)
-
-**GET** `/api/audit`
-
-### Response (200 OK)
-```json
-[
-  {
-    "auditId": "ee0e8400-e29b-41d4-a716-446655440000",
-    "actorId": "550e8400-e29b-41d4-a716-446655440000",
-    "actorName": "John Doe",
-    "action": "LOGIN",
-    "entityType": "USER",
-    "entityId": "550e8400-e29b-41d4-a716-446655440000",
-    "detail": "Login sukses: john@example.com",
-    "createdAt": "2025-12-21T08:01:00"
-  },
-  {
-    "auditId": "ef0e8400-e29b-41d4-a716-446655440000",
-    "actorId": "550e8400-e29b-41d4-a716-446655440000",
-    "actorName": "John Doe",
-    "action": "CREATE",
-    "entityType": "ORDER",
-    "entityId": "990e8400-e29b-41d4-a716-446655440000",
-    "detail": "Buat order ORD-1703123456789",
-    "createdAt": "2025-12-21T08:15:00"
-  }
-]
-```
-
-## 18. Audit - Get Logs By Actor
-
-**GET** `/api/audit/actor/{actorId}`
-
-### Path Parameters
-| Parameter | Type | Required | Notes |
-|---|---|---|---|
-| actorId | UUID | Yes | User ID |
-
-Response: daftar `AuditLogResponse` seperti `GET /api/audit`, difilter per actor, urut descending by `createdAt`.
-
-### Daftar `action` yang tercatat
-| action | Kapan dicatat |
-|---|---|
-| REGISTER | User baru mendaftar |
-| LOGIN / LOGIN_FAILED | Login sukses / gagal |
-| CREATE | Buat event, order, refund, reschedule |
-| PAYMENT | Pembayaran order sukses |
-| CHECK_IN | Tiket discan / redeemed |
-| EXPIRE | Order otomatis kedaluwarsa |
-| UPDATE | Ubah setting |
-| REVIEW | Refund disetujui / ditolak |
-| TRANSFER | Dana refund ditransfer |
-| APPROVE / REJECT | Reschedule/refund diACC / ditolak |
+## ⏳ Modul Lain — SCHEMA ONLY (Belum Diimplementasi)
+
+Semua tabel & entity sudah ada (migration `V1__init_schema.sql`), tapi **service/controller/DTO/repository sudah dihapus** dan akan diaktifkan bertahap. Jangan hit endpoint di bawah — akan 403/404.
+
+| Modul | Endpoint Rencana | Status |
+|---|---|---|
+| Events | `POST /api/events`, `GET /api/events`, `GET /api/events/{id}` | DB ready |
+| Orders/Bookings | `POST /api/orders` | DB ready |
+| Payments | `POST /api/payments/pay/{orderId}` | DB ready |
+| Tickets | `POST /api/tickets/scan/{ticketItemId}` | DB ready |
+| Settings | `GET/PUT /api/settings/**` | DB ready |
+| Refunds | `POST/GET/PUT /api/refunds/**` | DB ready |
+| Reschedules | `POST/PUT/GET /api/reschedules/**` | DB ready |
+| Audit | `GET /api/audit/**` | Hanya `AuditLogService.log()` internal |
+
+Jika butuh aktivasi modul tertentu, buat service/controller/repository + DTO sesuai entity yang sudah ada.
 
 ---
 
 ## Enum Values
 
-### User.Role
+### User.role (kolom `users.role` VARCHAR, normalisasi di AuthService)
 | Value | Description |
 |---|---|
-| ADMIN | Administrator |
-| ORGANIZER | Event Organizer |
 | CUSTOMER | Customer (default) |
+| ORGANIZER | Event Organizer |
+| ADMIN | Administrator |
 
-### User.KycStatus
+### Auth.status (kolom `auth.status`)
 | Value | Description |
 |---|---|
-| UNVERIFIED | Belum verifikasi (default) |
-| PENDING | Sedang diproses |
-| VERIFIED | Sudah diverifikasi |
-| REJECTED | Ditolak |
+| INACTIVE | Default setelah register, atau setelah logout |
+| ACTIVE | Setelah login sukses, token valid |
 
-### Event.EventStatus
-| Value | Description |
-|---|---|
-| DRAFT | Belum dipublikasi |
-| PUBLISHED | Sudah dipublikasi |
-| CANCELLED | Dibatalkan |
-| CLOSED | Selesai |
-
-### Order.OrderStatus
-| Value | Description |
-|---|---|
-| PENDING | Menunggu pembayaran |
-| SUCCESS | Pembayaran berhasil |
-| EXPIRED | Lewat waktu expiry (configurable), otomatis expired |
-| CANCELLED | Dibatalkan |
-
-### Payment.PaymentStatus
-| Value | Description |
-|---|---|
-| PENDING | Menunggu pembayaran |
-| SUCCESS | Pembayaran berhasil |
-| FAILED | Pembayaran gagal |
-
-### TicketItem.CheckInStatus
-| Value | Description |
-|---|---|
-| UNREDEEMED | Belum di-scan |
-| REDEEMED | Sudah di-scan |
-
-### RefundRequest.RefundStatus
-| Value | Description |
-|---|---|
-| PENDING | Menunggu approval |
-| APPROVED | Disetujui |
-| REJECTED | Ditolak |
-| REFUNDED | Sudah direfund |
-
-### RescheduleRequest.RescheduleStatus
-| Value | Description |
-|---|---|
-| PENDING | Menunggu approval |
-| APPROVED | Disetujui |
-| REJECTED | Ditolak |
+### Lainnya — SCHEMA ONLY (nilai sesuai migration, belum ada logic)
+- `organizers.verification_status`: UNVERIFIED (default)
+- `events.status`: DRAFT (default)
+- `ticket_tiers` / `bookings.status`: PENDING
+- `orders.status`: PENDING
+- `ticket_items.check_in_status`: UNREDEEMED
+- `refund_requests.status`: PENDING
+- `settings_key`: ADMIN_FEE, ORDER_EXPIRY_MINUTES, BOOKING_EXPIRY_MINUTES
 
 ---
 
 ## Flow Diagram
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Register   │    │    Login     │    │  Get Events  │
-│  /api/auth   │───▶│  /api/auth   │───▶│  /api/events │
-└─────────────┘    └─────────────┘    └─────────────┘
-                                              │
-                                              ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Check-in    │    │    Pay      │    │Create Order  │
-│  /api/tickets│◀───│ /api/payments│◀───│  /api/orders │
-└─────────────┘    └─────────────┘    └─────────────┘
-       │                  │                   │
-       │                  │                   │
-       ▼                  ▼                   ▼
-  REDEEMED           SUCCESS             PENDING → EXPIRED
-                                            (configurable)
+        ┌─────────────────┐
+        │ POST /api/v1/auth/register  (public)
+        │  name,email,pass,nik,role
+        └────────┬────────┘
+                 │ 200 + audit REGISTER
+                 ▼
+        ┌─────────────────┐
+        │ POST /api/v1/auth/login (public)
+        │  email,pass → JWT
+        └────────┬────────┘
+                 │ 200 token+expiresIn
+                 │ update auth.akses_token
+                 ▼
+        ┌─────────────────┐
+        │  Client simpan token
+        │  Header: Authorization: Bearer <token>
+        └────────┬────────┘
+                 ▼
+        ┌─────────────────┐
+        │  JwtAuthenticationFilter
+        │  validate + DB check
+        │  → SecurityContext ROLE_*
+        └────────┬────────┘
+                 ▼
+        ┌─────────────────┐
+        │  Protected API  (anyRequest.authenticated)
+        │  — modul lain akan di sini —
+        └─────────────────┘
 
-            Refund Flow (SUCCESS order)
-┌─────────────┐    ┌──────────────┐    ┌────────────┐
-│ Customer     │    │ Super Admin   │    │  Admin      │
-│ POST /refunds│───▶│ approve/reject│───▶│ markRefunded│
-└─────────────┘    └──────────────┘    └────────────┘
-
-          Reschedule Flow (perubahan jadwal)
-┌─────────────┐    ┌──────────────┐
-│ EO           │    │ Super Admin   │
-│ POST /resched│───▶│ approve/reject│───▶ update Event dates
-└─────────────┘    └──────────────┘
-
-          Audit Trail (super admin monitoring)
-        GET /api/audit  /  GET /api/audit/actor/{actorId}
-        -> semua aktifitas login, order, pay, scan,
-           settings, refund, reschedule
+  DB: users (profil) ──1:1── auth (hash+token+status)
+      organizers/events/ticket_tiers/bookings/orders/ticket_items/refund_requests/settings
+      → sudah ada tabel & entity, belum ada flow
 ```
-
-Visualisasi tambahan (diagram alur):
-1. **Refund**: customer yang punya order SUCCESS mengajukan refund via `POST /api/refunds` (isi `orderId`, `customerId`, bank, reason) → super admin lihat semua via `GET /api/refunds` → setuju/tolak (`approve`/`reject`) → tandai dana terkirim (`refunded`)
-2. **Reschedule**: EO ajukan tanggal baru via `POST /api/reschedules` → super admin ACC → tanggal event terganti otomatis; tolak → event tetap
-3. **Audit**: setiap aksi penting (login, register, buat event/order, bayar, scan, ubah setting, refund, reschedule, auto-expire) tercatat di `audit_logs`, bisa dilihat super admin
-
-Cron Job `OrderScheduler` tetap jalan tiap 60 detik — order PENDING lewat `expiredAt` jadi `EXPIRED`, kuota tiket dikembalikan.
 
 ---
 
 ## Notes for Frontend
 
-1. **Tidak ada Authentication** - Semua endpoint bisa diakses tanpa token (sementara, belum production)
-2. **Format DateTime** - Gunakan format ISO: `yyyy-MM-dd'T'HH:mm:ss`
-3. **UUID** - Semua ID menggunakan UUID v4
-4. **Admin Fee** - Bisa diubah via `PUT /api/settings/ADMIN_FEE` (default Rp 5.000)
-5. **Order Expiry** - Bisa diubah via `PUT /api/settings/ORDER_EXPIRY_MINUTES` (default 15 menit)
-6. **Cron Job** - Server otomatis cancel order expired setiap 60 detik
-7. **Settings API** - Untuk admin panel, gunakan `/api/settings` untuk kelola konfigurasi
-8. **Refund** - Customer ajukan via `POST /api/refunds`; super admin kelola via `approve`/`reject`/`refunded`
-9. **Reschedule** - EO ajukan via `POST /api/reschedules`; super admin `approve`/`reject` (approve otomatis update tanggal event)
-10. **Audit Trail** - `GET /api/audit` untuk super admin melihat semua aktifitas; `GET /api/audit/actor/{actorId}` per user
+1. **Base URL**: `http://localhost:8081` (port di `application.properties:2`)
+2. **Auth dulu**: register → login → simpan `token` dari response
+3. **Kirim token**: setiap request protected → `Authorization: Bearer <token>` (tanpa token = 403)
+4. **Format**: `Content-Type: application/json`, `expiresIn` detik, `userId` UUID
+5. **Validasi**: name/email/password required, NIK 16 digit optional, role fallback CUSTOMER
+6. **Duplikat**: email/NIK unique → 400 "Email/NIK sudah terdaftar!"
+7. **Modul lain**: jangan panggil dulu — akan 403/404 sampai service diaktifkan (entity & tabel sudah ready)
+8. **Logout**: belum ada endpoint, tapi token bisa diinvalidasi via `auth.status=INACTIVE` (hubungi backend jika perlu)
+```

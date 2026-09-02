@@ -28,8 +28,8 @@ public class TicketItem {
     @JoinColumn(name = "tier_id", nullable = false)
     private TicketTier tier;
 
-    @Column(name = "ticket_code", nullable = false, unique = true, length = 50, columnDefinition = "VARCHAR(50)")
-    private String ticketCode;
+    @Column(name = "attendee_email", length = 50, columnDefinition = "VARCHAR(50)")
+    private String attendeeEmail;
 
     @Column(name = "attendee_name", nullable = false, length = 100, columnDefinition = "VARCHAR(100)")
     private String attendeeName;
@@ -37,17 +37,24 @@ public class TicketItem {
     @Column(name = "attendee_nik", nullable = false, length = 16, columnDefinition = "VARCHAR(16)")
     private String attendeeNik;
 
-    // KET: qr_code_hash DIHAPUS karena digantikan oleh UUID ticketItemId langsung di React
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "check_in_status", nullable = false, columnDefinition = "VARCHAR(255)")
+    @Column(name = "check_in_status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
     @Builder.Default
-    private CheckInStatus checkInStatus = CheckInStatus.UNREDEEMED;
+    private String checkInStatus = "UNREDEEMED";
 
     @Column(name = "check_in_at")
     private LocalDateTime checkInAt;
 
-    public enum CheckInStatus {
-        UNREDEEMED, REDEEMED
-    }
+    @Column(name = "created_at", updatable = false)
+    @Builder.Default
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "create_by")
+    private UUID createBy;
+
+    @Column(name = "updated_at")
+    @Builder.Default
+    private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Column(name = "updated_by")
+    private UUID updatedBy;
 }
