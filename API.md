@@ -2,17 +2,15 @@
 
 Base URL: `http://localhost:8081`
 
-> **Status:** Hanya modul **Auth** yang aktif. Modul lain (Events, Orders, Payments, Tickets, Settings, Refunds, Reschedules, Audit) masih **SCHEMA ONLY** — tabel & entity sudah siap, endpoint belum di-expose. Dokumen di bawah hanya menjelaskan yang sudah bisa dipakai.
+> **Status:** Hanya modul **Auth** yang aktif (+ Google Login). Modul lain masih **SCHEMA ONLY**.
 
 ---
 
 ## 1. Auth - Register
 
-**POST** `/api/v1/auth/register`
+**POST** `/api/v1/auth/register` (alias `/api/auth/register` juga permit)
 
-> Alias lama `/api/auth/register` masih di-permitAll untuk backward compat, tapi gunakan `/api/v1/auth/register`.
-
-### Request Body
+### Request
 ```json
 {
   "name": "John Doe",
@@ -23,46 +21,25 @@ Base URL: `http://localhost:8081`
   "nik": "3201234567890123"
 }
 ```
+| Field | Required | Notes |
+|---|---|---|
+| name | Yes | Max 100 |
+| email | Yes | Unique, @Email |
+| phone | No | Max 15 |
+| password | Yes | Min 6, BCrypt ke `auth` |
+| role | No | CUSTOMER/ORGANIZER/ADMIN fallback CUSTOMER |
+| nik | No | 16 digit, Unique |
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| name | String | Yes | Max 100 chars, @NotBlank |
-| email | String | Yes | Unique, @Email |
-| phone | String | No | Max 15 chars |
-| password | String | Yes | Min 6 chars, di-hash BCrypt ke tabel `auth` |
-| role | String | No | CUSTOMER (default), ORGANIZER, ADMIN — case-insensitive, fallback CUSTOMER |
-| nik | String | No | 16 digit angka (`\\d{16}`), Unique jika diisi |
+Flow `AuthService.java:30`: validasi → duplikat email/nik → `User` save → `Auth` save `INACTIVE` → audit REGISTER.
 
-Flow (`AuthService.java:29`): validasi DTO → `existsByEmail`/`existsByNik` → `users` insert → `auth` insert (`status=INACTIVE`, `password` hash) → audit `REGISTER`.
-
-### Response (200 OK)
+### Response 200
 ```json
-{
-  "message": "Registrasi berhasil!",
-  "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "John Doe",
-  "email": "john@example.com",
-  "role": "CUSTOMER",
-  "token": null,
-  "expiresIn": null
-}
+{"message":"Registrasi berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":null,"expiresIn":null}
 ```
+400: `"Email sudah terdaftar!"` / `"NIK sudah terdaftar!"`
 
-### Response (400 Bad Request)
-String biasa (bukan JSON object) dari `catch RuntimeException`:
-```json
-"Email sudah terdaftar!"
-```
-```json
-"NIK sudah terdaftar!"
-```
-Validasi bean (`@Valid`) juga return 400 dengan detail field error (Spring default).
-
-### Contoh cURL
 ```bash
-curl -X POST http://localhost:8081/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"John","email":"john@example.com","password":"secret123","role":"CUSTOMER"}'
+curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","password":"123456"}'
 ```
 
 ---
@@ -71,178 +48,122 @@ curl -X POST http://localhost:8081/api/v1/auth/register \
 
 **POST** `/api/v1/auth/login`
 
-Flow (`AuthService.java:74`): cari `users` by email → ambil `auth` by `user_id` → `passwordEncoder.matches` → generate JWT (`JwtUtil.java:18` claim userId/email/role, HS256, 86400000ms) → update `auth.akses_token`, `expired_token`, `status=ACTIVE` → audit `LOGIN`.
+Flow `AuthService.java:78`: `findByEmail` → `findByUserUserId` → `matches` → `jwtTokenProvider.generateToken(userId,email,role)` (86400000ms) → update `aksesToken/expiredToken/ACTIVE` → return.
 
-### Request Body
+### Request
 ```json
-{
-  "email": "john@example.com",
-  "password": "secret123"
-}
+{"email":"john@example.com","password":"123456"}
 ```
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| email | String | Yes | @Email |
-| password | String | Yes | @NotBlank |
-
-### Response (200 OK)
+### Response 200
 ```json
-{
-  "message": "Login berhasil!",
-  "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "John Doe",
-  "email": "john@example.com",
-  "role": "CUSTOMER",
-  "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI1NTBl...",
-  "expiresIn": 86400
-}
+{"message":"Login berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}
 ```
-`expiresIn` dalam **detik** (86400 = 24 jam). `token` simpan di client (header `Authorization: Bearer <token>` untuk request berikutnya).
+400: `"Email atau password salah!"`
 
-### Response (400 Bad Request)
-```json
-"Email atau password salah!"
-```
-Juga tercatat audit `LOGIN_FAILED` jika password salah.
-
-### Contoh cURL
 ```bash
-curl -X POST http://localhost:8081/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"john@example.com","password":"secret123"}'
+curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
 ```
 
 ---
 
-## 3. Middleware JWT Authentication
+## 3. Auth - Google Login (Baru)
 
-Semua endpoint selain `/api/v1/auth/**` (dan alias `/api/auth/**`) sekarang **butuh JWT** (`SecurityConfig.java:20` → `anyRequest().authenticated()`, `STATELESS`).
+**POST** `/api/v1/auth/google`
 
-**Implementasi** (`JwtAuthenticationFilter.java:15`):
-- Cek header `Authorization: Bearer <token>`
-- `JwtUtil.validateToken()` — cek signature HS256 & expiry
-- `JwtUtil.getUserId/email/role` — parse claims
-- DB check: `authRepository.findByUserUserId(userId)` → harus `status=ACTIVE` & `akses_token == token` (mendukung invalidasi via logout)
-- Set `SecurityContextHolder` dengan `ROLE_<role>`
+ID Token diambil **di frontend** via Google Identity Services, backend hanya verifikasi.
 
-**Cara pakai di client:**
+Flow `AuthService.java:115` `loginWithGoogle()`:
+1. `GET https://oauth2.googleapis.com/tokeninfo?id_token=<idToken>` (RestTemplate)
+2. cek `aud==google.client-id` (jika `google.client-id` diisi di `application.properties:19`), cek `exp`, `email_verified`
+3. `findByEmail` → jika null buat `User(name,email,role=CUSTOMER)` (isNewUser)
+4. `findByUserUserId` → jika null buat `Auth(password dummy BCrypt, authGoogle= sub.substring(0,20))` else update `authGoogle`
+5. `jwtTokenProvider.generateToken()` → `aksesToken/expiredToken/ACTIVE` → audit `REGISTER_GOOGLE/LOGIN_GOOGLE` → return JWT sama seperti login.
+
+### Request
+```json
+{"idToken":"eyJhbGciOiJSUzI1NiIs...Google ID Token..."}
+```
+| Field | Required | Notes |
+|---|---|---|
+| idToken | Yes | @NotBlank, ID Token JWT dari `google.accounts.id` GIS |
+
+### Response 200
+```json
+{"message":"Login via Google berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}
+```
+atau jika baru: `"Registrasi via Google berhasil!"`. 400 jika token invalid/expired/aud mismatch/email_verified false.
+
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:8081/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"john@example.com","password":"secret123"}' | jq -r .token)
-
-# contoh request protected (akan 200 jika token valid, 403 jika tidak)
-curl http://localhost:8081/api/v1/protected-example \
-  -H "Authorization: Bearer $TOKEN"
+curl -X POST localhost:8081/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
 ```
 
-**Error tanpa/cacat token:**
-- Tanpa header → `403 Forbidden` (atau `401` tergantung Spring Security)
-- Token expired / signature salah / sudah logout (`status=INACTIVE`) → filter skip auth → `403`
+**Frontend:** `https://accounts.google.com/gsi/client` + `data-client_id=google.client-id` → `res.credential` → POST ke backend. Lihat `handle()` contoh di chat.
 
-**Logout (internal, belum ada endpoint):** `AuthService.logout(userId)` — null-kan `akses_token/expired_token`, set `INACTIVE`. Bisa di-expose jadi `POST /api/v1/auth/logout` di tahap berikutnya.
+> `authGoogle` `VARCHAR(20)` → disubstring 20 char. `password` dummy UUID BCrypt karena kolom NOT NULL. Jika `google.client-id` kosong, validasi aud diskip (dev).
 
-**Konfigurasi JWT** (`application.properties`):
+---
+
+## 4. Middleware JWT
+
+Semua selain `/api/v1/auth/**` butuh JWT `SecurityConfig.java:30` `STATELESS`.
+
+`JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `ROLE_*` → `anyRequest.authenticated()`.
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .token)
+curl localhost:8081/protected -H "Authorization: Bearer $TOKEN"
+# 403 tanpa token / expired / logout
+```
+
+Config `application.properties:19`:
 ```properties
 jwt.secret=eventday-super-secret-key-min-32-chars-change-in-production-123456
 jwt.expiration-ms=86400000
+google.client-id= # kosong = tidak cek aud
 ```
+
+Logout internal `AuthService.logout(userId)` null-kan token, belum expose endpoint.
 
 ---
 
-## ⏳ Modul Lain — SCHEMA ONLY (Belum Diimplementasi)
-
-Semua tabel & entity sudah ada (migration `V1__init_schema.sql`), tapi **service/controller/DTO/repository sudah dihapus** dan akan diaktifkan bertahap. Jangan hit endpoint di bawah — akan 403/404.
+## ⏳ Modul Lain — SCHEMA ONLY
 
 | Modul | Endpoint Rencana | Status |
 |---|---|---|
-| Events | `POST /api/events`, `GET /api/events`, `GET /api/events/{id}` | DB ready |
-| Orders/Bookings | `POST /api/orders` | DB ready |
+| Events | `POST /api/events`, `GET /api/events` | DB ready |
+| Orders | `POST /api/orders` | DB ready |
 | Payments | `POST /api/payments/pay/{orderId}` | DB ready |
 | Tickets | `POST /api/tickets/scan/{ticketItemId}` | DB ready |
 | Settings | `GET/PUT /api/settings/**` | DB ready |
-| Refunds | `POST/GET/PUT /api/refunds/**` | DB ready |
-| Reschedules | `POST/PUT/GET /api/reschedules/**` | DB ready |
-| Audit | `GET /api/audit/**` | Hanya `AuditLogService.log()` internal |
+| Refunds | `POST /api/refunds` | DB ready |
+| Audit | `GET /api/audit/**` | hanya log internal |
 
-Jika butuh aktivasi modul tertentu, buat service/controller/repository + DTO sesuai entity yang sudah ada.
+`RescheduleRequest` **dihapus** — jangan panggil.
 
 ---
 
-## Enum Values
+## Enum
 
-### User.role (kolom `users.role` VARCHAR, normalisasi di AuthService)
-| Value | Description |
-|---|---|
-| CUSTOMER | Customer (default) |
-| ORGANIZER | Event Organizer |
-| ADMIN | Administrator |
-
-### Auth.status (kolom `auth.status`)
-| Value | Description |
-|---|---|
-| INACTIVE | Default setelah register, atau setelah logout |
-| ACTIVE | Setelah login sukses, token valid |
-
-### Lainnya — SCHEMA ONLY (nilai sesuai migration, belum ada logic)
-- `organizers.verification_status`: UNVERIFIED (default)
-- `events.status`: DRAFT (default)
-- `ticket_tiers` / `bookings.status`: PENDING
-- `orders.status`: PENDING
-- `ticket_items.check_in_status`: UNREDEEMED
-- `refund_requests.status`: PENDING
-- `settings_key`: ADMIN_FEE, ORDER_EXPIRY_MINUTES, BOOKING_EXPIRY_MINUTES
+`User.role`: CUSTOMER (default) / ORGANIZER / ADMIN
+`Auth.status`: INACTIVE / ACTIVE
+LAIN schema-only: `organizers.verification_status UNVERIFIED`, `events.status DRAFT`, `bookings/orders PENDING`, `ticket_items UNREDEEMED`, `refund_requests PENDING`
 
 ---
 
 ## Flow Diagram
-
 ```
-        ┌─────────────────┐
-        │ POST /api/v1/auth/register  (public)
-        │  name,email,pass,nik,role
-        └────────┬────────┘
-                 │ 200 + audit REGISTER
-                 ▼
-        ┌─────────────────┐
-        │ POST /api/v1/auth/login (public)
-        │  email,pass → JWT
-        └────────┬────────┘
-                 │ 200 token+expiresIn
-                 │ update auth.akses_token
-                 ▼
-        ┌─────────────────┐
-        │  Client simpan token
-        │  Header: Authorization: Bearer <token>
-        └────────┬────────┘
-                 ▼
-        ┌─────────────────┐
-        │  JwtAuthenticationFilter
-        │  validate + DB check
-        │  → SecurityContext ROLE_*
-        └────────┬────────┘
-                 ▼
-        ┌─────────────────┐
-        │  Protected API  (anyRequest.authenticated)
-        │  — modul lain akan di sini —
-        └─────────────────┘
-
-  DB: users (profil) ──1:1── auth (hash+token+status)
-      organizers/events/ticket_tiers/bookings/orders/ticket_items/refund_requests/settings
-      → sudah ada tabel & entity, belum ada flow
+register (email/pass) ─→ login (email/pass) ─┐
+                                             ├→ JWT Eventday → Bearer → Filter → Protected
+google GIS (idToken) ──→ POST /google ───────┘       (RestTemplate tokeninfo, find/create User+Auth)
 ```
+DB: `users --1:1-- auth (hash+googleId+token)`
 
 ---
 
-## Notes for Frontend
-
-1. **Base URL**: `http://localhost:8081` (port di `application.properties:2`)
-2. **Auth dulu**: register → login → simpan `token` dari response
-3. **Kirim token**: setiap request protected → `Authorization: Bearer <token>` (tanpa token = 403)
-4. **Format**: `Content-Type: application/json`, `expiresIn` detik, `userId` UUID
-5. **Validasi**: name/email/password required, NIK 16 digit optional, role fallback CUSTOMER
-6. **Duplikat**: email/NIK unique → 400 "Email/NIK sudah terdaftar!"
-7. **Modul lain**: jangan panggil dulu — akan 403/404 sampai service diaktifkan (entity & tabel sudah ready)
-8. **Logout**: belum ada endpoint, tapi token bisa diinvalidasi via `auth.status=INACTIVE` (hubungi backend jika perlu)
-```
+## Notes Frontend
+1. Base `http://localhost:8081`
+2. Register/login simpan `token`, kirim `Authorization: Bearer <token>`
+3. Google: `https://accounts.google.com/gsi/client` + `CLIENT_ID` → `res.credential` → POST ke `/google`
+4. `google.client-id` harus sama di frontend & backend
+5. Tanpa token 403, modul lain 403/404 sampai diaktifkan

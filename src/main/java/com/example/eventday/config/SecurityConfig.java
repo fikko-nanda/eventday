@@ -33,6 +33,8 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // Perbaikan: tambahkan "/" dan "/error" agar browser tidak memunculkan 403 saat akses ngrok root
+                .requestMatchers("/", "/error").permitAll()
                 .requestMatchers("/api/v1/auth/**").permitAll()
                 // backward compat lama
                 .requestMatchers("/api/auth/**").permitAll()
