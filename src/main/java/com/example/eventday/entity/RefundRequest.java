@@ -19,39 +19,35 @@ public class RefundRequest {
     @Column(name = "refund_id", updatable = false, nullable = false)
     private UUID refundId;
 
-    // Relasi ke Order (Customer memilih order mana yang mau di-refund)
-    @ManyToOne
-    @JoinColumn(name = "order_id", nullable = false)
-    private Order order;
-
-    // Relasi ke User (Customer yang mengajukan)
     @ManyToOne
     @JoinColumn(name = "customer_id", nullable = false)
     private User customer;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
-    private String reason;
+    @ManyToOne
+    @JoinColumn(name = "order_id", nullable = false)
+    private Order order;
 
     @Column(name = "refund_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal refundAmount;
 
-    // Info Rekening Bank Tujuan Transfer Refund
     @Column(name = "bank_name", nullable = false, length = 50, columnDefinition = "VARCHAR(50)")
     private String bankName;
 
-    @Column(name = "bank_account_number", nullable = false, length = 50, columnDefinition = "VARCHAR(50)")
+    @Column(name = "bank_account_number", nullable = false, length = 35, columnDefinition = "VARCHAR(35)")
     private String bankAccountNumber;
 
     @Column(name = "bank_account_name", nullable = false, length = 100, columnDefinition = "VARCHAR(100)")
     private String bankAccountName;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "VARCHAR(255)")
-    @Builder.Default
-    private RefundStatus status = RefundStatus.PENDING;
+    @Column(columnDefinition = "TEXT", nullable = false)
+    private String reason;
 
     @Column(name = "admin_note", columnDefinition = "TEXT")
     private String adminNote;
+
+    @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
+    @Builder.Default
+    private String status = "PENDING";
 
     @Column(name = "requested_at", updatable = false)
     @Builder.Default
@@ -60,7 +56,17 @@ public class RefundRequest {
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
 
-    public enum RefundStatus {
-        PENDING, APPROVED, REJECTED, REFUNDED
-    }
+    @Column(name = "created_at", updatable = false)
+    @Builder.Default
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "create_by")
+    private UUID createBy;
+
+    @Column(name = "updated_at")
+    @Builder.Default
+    private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Column(name = "updated_by")
+    private UUID updatedBy;
 }

@@ -1,12 +1,12 @@
 package com.example.eventday.dto;
 
-import java.util.UUID;
-
-import com.example.eventday.entity.User.Role;
+import com.example.eventday.entity.User;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.UUID;
 
 @Data
 @Builder
@@ -17,5 +17,7 @@ public class AuthResponse {
     private UUID userId;
     private String name;
     private String email;
-    private Role role;
+    private String role;
+    private String token;
+    private Long expiresIn;
 }

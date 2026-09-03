@@ -19,36 +19,58 @@ public class Order {
     @Column(name = "order_id", updatable = false, nullable = false)
     private UUID orderId;
 
-    @Column(name = "order_number", nullable = false, unique = true, length = 50, columnDefinition = "VARCHAR(50)")
-    private String orderNumber;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "booking_id", unique = true)
+    private Booking booking;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id", nullable = false)
     private User customer;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "event_id", nullable = false)
     private Event event;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tier_id", nullable = false)
+    private TicketTier ticketTier;
+
+    @Column(nullable = false)
+    private Integer quantity;
 
     @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
-    @Column(name = "admin_fee", nullable = false, precision = 10, scale = 2)
+    @Column(name = "admin_fee", nullable = false, precision = 12, scale = 2)
     private BigDecimal adminFee;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "VARCHAR(255)")
+    @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
     @Builder.Default
-    private OrderStatus status = OrderStatus.PENDING;
+    private String status = "PENDING";
+
+    @Column(name = "payment_method", length = 50, columnDefinition = "VARCHAR(50)")
+    private String paymentMethod;
+
+    @Column(name = "transaction_id_gateway", length = 100, columnDefinition = "VARCHAR(100)")
+    private String transactionIdGateway;
+
+    @Column(name = "paid_at")
+    private LocalDateTime paidAt;
+
+    @Column(name = "expired_at", nullable = false)
+    private LocalDateTime expiredAt;
 
     @Column(name = "created_at", updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    @Column(name = "expired_at", nullable = false)
-    private LocalDateTime expiredAt;
+    @Column(name = "create_by")
+    private UUID createBy;
 
-    public enum OrderStatus {
-        PENDING, SUCCESS, EXPIRED, CANCELLED
-    }
+    @Column(name = "updated_at")
+    @Builder.Default
+    private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Column(name = "updated_by")
+    private UUID updatedBy;
 }

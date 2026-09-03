@@ -1,6 +1,7 @@
 package com.example.eventday.controller;
 
 import com.example.eventday.dto.AuthResponse;
+import com.example.eventday.dto.GoogleLoginRequest;
 import com.example.eventday.dto.LoginRequest;
 import com.example.eventday.dto.RegisterRequest;
 import com.example.eventday.service.AuthService;
@@ -10,7 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -30,6 +31,16 @@ public class AuthController {
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
         try {
             AuthResponse response = authService.login(request);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<?> loginWithGoogle(@Valid @RequestBody GoogleLoginRequest request) {
+        try {
+            AuthResponse response = authService.loginWithGoogle(request);
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());

@@ -1,226 +1,142 @@
-# AGENTS.md - Eventday Application
+# AGENTS.md - Eventday Ticketing Backend
 
 ## Project Overview
+Eventday adalah backend ticketing Spring Boot 3.x (Java 21, PostgreSQL, Maven, port 8081) untuk penjualan tiket event. Fokus: manajemen user, organizer, event, ticket, booking/order, payment, refund.
 
-**Eventday** adalah aplikasi Spring Boot untuk penjualan tiket event secara online. Aplikasi ini mengelola event, tiket, pemesanan, pembayaran, dan check-in tiket.
+> **Status 2026-09-02 (kirim ini ke AI):**
+> - **Tahap 1 — JPA Entities LENGKAP 10 tabel (11 physical): SELESAI.** `V1__init_schema.sql` + entities di `entity/` 100% siap. **RescheduleRequest DIHAPUS** (tidak ada di prompt terbaru).
+> - **Tahap 2 — Auth Only SELESAI (+ Google Login di backend).** `POST /api/v1/auth/register` & `POST /api/v1/auth/login` & `POST /api/v1/auth/google` + JWT + CORS yang aktif. Modul lain (Event/Booking/Order/Ticket/Refund/Settings) **schema-only**: tabel+entity ada, service/controller/repo belum dibuat.
 
-- **Framework**: Spring Boot 4.0.8
-- **Java Version**: 21
-- **Database**: PostgreSQL
-- **Build Tool**: Maven
-- **Port**: 8081
+AI harus: jangan buat endpoint Event/Order dll kecuali diminta; jangan buat ulang tabel reschedule; ikuti struktur di bawah.
 
-## Tech Stack & Dependencies
-
+## Tech Stack
 | Dependency | Purpose |
 |---|---|
-| `spring-boot-starter-data-jpa` | ORM & database access |
-| `spring-boot-starter-webmvc` | REST API endpoints |
-| `spring-boot-starter-validation` | Bean validation (DTO constraints) |
-| `spring-boot-starter-security` | Security (PasswordEncoder / BCrypt) |
-| `postgresql` | Database driver |
-| `lombok` | Boilerplate reduction |
-| `spring-boot-starter-data-jpa-test` | Test (test scope) |
-| `spring-boot-starter-webmvc-test` | MVC test (test scope) |
-| `spring-security-test` | Security test (test scope) |
+| `spring-boot-starter-web` (3.2.4) | REST + RestTemplate (verifikasi Google) |
+| `spring-boot-starter-data-jpa` | ORM |
+| `spring-boot-starter-validation` | `@NotBlank @Email @Size` di DTO |
+| `spring-boot-starter-security` | `BCryptPasswordEncoder`, `SecurityFilterChain` |
+| `postgresql` | Driver |
+| `jjwt-api:0.12.5` + `jjwt-impl` + `jjwt-jackson` | JWT HS256 |
+| `lombok` | `@Data @Builder` |
+| `spring-boot-starter-test` + `spring-security-test` | Test |
 
-## Project Structure
-
-```
-src/main/java/com/example/eventday/
-├── EventdayApplication.java          # Entry point, @EnableScheduling
-├── config/                          # Security configuration
-│   └── SecurityConfig.java          # BCrypt PasswordEncoder, Spring Security filter chain (permitAll)
-├── controller/                       # REST API layer
-│   ├── AuthController.java          # /api/auth/*
-│   ├── EventController.java         # /api/events/*
-│   ├── OrderController.java         # /api/orders/*
-│   ├── PaymentController.java       # /api/payments/*
-│   ├── SettingsController.java      # /api/settings/*
-│   ├── TicketController.java        # /api/tickets/*
-│   ├── RefundController.java        # /api/refunds/*
-│   ├── RescheduleController.java    # /api/reschedules/*
-│   └── AuditController.java         # /api/audit/*
-├── dto/                             # Data Transfer Objects
-│   ├── RegisterRequest.java
-│   ├── LoginRequest.java
-│   ├── AuthResponse.java
-│   ├── CreateEventRequest.java
-│   ├── EventResponse.java
-│   ├── CreateOrderRequest.java
-│   ├── OrderResponse.java
-│   ├── PaymentResponse.java
-│   ├── TicketResponse.java
-│   ├── SettingsResponse.java
-│   ├── RefundRequestDto.java
-│   ├── RescheduleRequestDto.java
-│   └── AuditLogResponse.java
-├── entity/                          # JPA entities
-│   ├── User.java                    # Table: users
-│   ├── Event.java                   # Table: events
-│   ├── TicketTier.java              # Table: ticket_tiers
-│   ├── TicketItem.java              # Table: ticket_items
-│   ├── Order.java                   # Table: orders
-│   ├── Payment.java                 # Table: payments
-│   ├── RefundRequest.java           # Table: refund_requests
-│   ├── RescheduleRequest.java       # Table: reschedule_requests
-│   ├── Settings.java                # Table: settings
-│   └── AuditLog.java                # Table: audit_logs
-├── repository/                      # Spring Data JPA repositories
-│   ├── UserRepository.java
-│   ├── EventRepository.java
-│   ├── TicketTierRepository.java
-│   ├── TicketItemRepository.java
-│   ├── OrderRepository.java
-│   ├── PaymentRepository.java
-│   ├── RefundRequestRepository.java
-│   ├── RescheduleRequestRepository.java
-│   ├── SettingsRepository.java
-│   └── AuditLogRepository.java
-└── service/                         # Business logic layer
-    ├── AuthService.java
-    ├── EventService.java
-    ├── OrderService.java
-    ├── PaymentService.java
-    ├── SettingsService.java
-    ├── TicketService.java
-    ├── RefundService.java
-    ├── RescheduleService.java
-    ├── AuditLogService.java
-    └── OrderScheduler.java          # Cron job: auto-cancel expired orders (every 60s)
-```
-
-## Database Schema
-
-Tabel (auto-dibuat oleh `ddl-auto=update`):
-
-| Table | Key | Note |
-|---|---|---|
-| `users` | `user_id` UUID | `email` unique, `nik` unique, password di-BCrypt |
-| `events` | `event_id` UUID | FK `organizer_id` → users, status DRAFT/PUBLISHED/CANCELLED/CLOSED |
-| `ticket_tiers` | `tier_id` UUID | FK `event_id` → events, `@Version` optimistic lock (anti overselling) |
-| `ticket_items` | `ticket_item_id` UUID | FK `order_id` → orders, FK `tier_id` → ticket_tiers, `ticket_code` unique, index NIK+tier |
-| `orders` | `order_id` UUID | FK `customer_id` → users, FK `event_id` → events, `order_number` unique |
-| `payments` | `payment_id` UUID | FK `order_id` → orders (unique, One-to-One) |
-| `refund_requests` | `refund_id` UUID | FK `order_id`, FK `customer_id` |
-| `reschedule_requests` | `reschedule_id` UUID | FK `event_id` |
-| `settings` | `setting_key` (String PK) | Key-value config |
-| `audit_logs` | `audit_id` UUID | actor, action, entity, detail, timestamp |
-
-## API Endpoints
-
-### Auth (`/api/auth`)
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/auth/register` | Register new user |
-| POST | `/api/auth/login` | Login user |
-
-### Events (`/api/events`)
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/events` | Create new event |
-| GET | `/api/events` | Get all published events |
-| GET | `/api/events/{eventId}` | Get event by ID |
-
-### Orders (`/api/orders`)
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/orders` | Create new order |
-
-### Payments (`/api/payments`)
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/payments/pay/{orderId}?paymentMethod=...` | Process payment for order |
-
-### Settings (`/api/settings`)
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/settings` | Get all settings |
-| GET | `/api/settings/{key}` | Get setting by key |
-| PUT | `/api/settings/{key}` | Update setting value |
-
-### Tickets (`/api/tickets`)
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/tickets/scan/{ticketItemId}` | Check-in / redeem ticket |
-
-### Refunds (`/api/refunds`)
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/refunds` | Customer ajukan refund order SUCCESS |
-| GET | `/api/refunds` | Semua pengajuan refund (super admin) |
-| PUT | `/api/refunds/{refundId}/approve` | Admin setujui refund |
-| PUT | `/api/refunds/{refundId}/reject?note=...` | Admin tolak refund |
-| PUT | `/api/refunds/{refundId}/refunded` | Admin tandai dana sudah ditransfer |
-
-### Reschedules (`/api/reschedules`)
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/reschedules` | EO ajukan jadwal baru event |
-| PUT | `/api/reschedules/{rescheduleId}/approve` | Super admin ACC → tanggal event diupdate |
-| PUT | `/api/reschedules/{rescheduleId}/reject` | Super admin tolak |
-| GET | `/api/reschedules` | Semua pengajuan reschedule |
-
-### Audit (`/api/audit`)
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/audit` | Semua log aktifitas (super admin) |
-| GET | `/api/audit/actor/{actorId}` | Log aktifitas per user |
-
-## Database Configuration
-
+Config `application.properties`:
 ```properties
+server.port=8081
 spring.datasource.url=jdbc:postgresql://localhost:5432/db_eventday
 spring.datasource.username=postgres
 spring.datasource.password=fikko04
 spring.jpa.hibernate.ddl-auto=update
+jwt.secret=eventday-super-secret-key-min-32-chars-change-in-production-123456
+jwt.expiration-ms=86400000
+google.client-id=   # kosong = tidak validasi aud, isi xxxx.apps.googleusercontent.com untuk validasi ketat
 ```
 
-## Key Business Logic
+## Project Structure (yang benar — kirim ini)
+```
+src/main/java/com/example/eventday/
+├── EventdayApplication.java
+├── config/
+│   ├── CorsConfig.java          # GLOBAL CORS * (ngrok) — allowedOriginPatterns *, allowCredentials true
+│   └── SecurityConfig.java      # BCrypt, STATELESS, .cors(), csrf.disable(), permitAll /api/v1/auth/**, addFilterBefore JwtAuthenticationFilter
+├── security/
+│   ├── JwtTokenProvider.java    # UTAMA — @Value("${jwt.secret}") + @Value("${jwt.expiration-ms}") jjwt 0.12.5, generate/parse/validate, HS256
+│   ├── JwtUtil.java             # COMPAT — sama logic dengan default fallback, dipakai legacy (jangan hapus)
+│   └── JwtAuthenticationFilter.java # OncePerRequestFilter, cek Bearer, validate, cek auth.status==ACTIVE && aksesToken==token, set ROLE_*
+├── controller/
+│   └── AuthController.java      # POST /api/v1/auth/register, POST /api/v1/auth/login, POST /api/v1/auth/google (juga permit /api/auth/** legacy)
+├── dto/
+│   ├── RegisterRequest.java     # name @NotBlank, email @Email, phone @Size15, password @NotBlank @Size6, nik @Pattern \d{16}, role String
+│   ├── LoginRequest.java        # email, password
+│   ├── GoogleLoginRequest.java  # idToken @NotBlank (ID Token dari frontend Google GIS)
+│   └── AuthResponse.java        # message, userId, name, email, role, token, expiresIn (detik)
+├── entity/                      # 11 files = 10 tabel prompt (Settings & AuditLog jadi 1 poin)
+│   ├── User.java                # users — @GeneratedValue UUID, email unique, nik unique 16, role ENUM CUSTOMER/ORGANIZER/ADMIN @Enumerated STRING
+│   ├── Auth.java                # auth — @ManyToOne User (user_id UNIQUE FK CASCADE), password BCrypt, authGoogle VARCHAR(20) (potong 20 char), aksesToken TEXT, expiredToken, status INACTIVE/ACTIVE
+│   ├── Organizer.java           # organizers — @ManyToOne User, nameOrganizer, npwpNumber, aktaPerusahaan, bankName/bankAccountNumber, verificationStatus UNVERIFIED
+│   ├── Event.java               # events — @ManyToOne Organizer, title/description/category/venueName/bannerUrl/facility/startDate/endDate/status DRAFT
+│   ├── TicketTier.java          # ticket_tiers — @ManyToOne Event, tierName/price(12,2)/totalQuota/availableQuota
+│   ├── Booking.java             # bookings — @ManyToOne User + TicketTier, quantity/status PENDING/expiresAt
+│   ├── Order.java               # orders — @ManyToOne Booking(UNIQUE)+Customer(User)+Event+TicketTier, quantity/totalAmount/adminFee/status/paymentMethod/transactionIdGateway/paidAt/expiredAt
+│   ├── TicketItem.java          # ticket_items — @ManyToOne Order+TicketTier, attendeeEmail/Name/Nik/checkInStatus UNREDEEMED/checkInAt
+│   ├── RefundRequest.java       # refund_requests — @ManyToOne Customer+Order, refundAmount/bank* /reason/adminNote/status PENDING/requestedAt/processedAt
+│   ├── Settings.java            # settings — BIGSERIAL PK, settings_key UNIQUE
+│   └── AuditLog.java            # audit_logs — actorId/actorName/action/detail/createdAt
+├── repository/
+│   ├── UserRepository.java      # findByEmail, existsByEmail, existsByNik
+│   ├── AuthRepository.java      # findByUserUserId, findByAksesToken
+│   └── AuditLogRepository.java  # log only
+└── service/
+    ├── AuthService.java         # register + login + loginWithGoogle(@Value google.client-id, RestTemplate tokeninfo, verify aud/exp/email_verified) + logout
+    └── AuditLogService.java     # log(actorId, actorName, action, detail)
+```
+**DIHAPUS & JANGAN DIBUAT ULANG:** `RescheduleRequest.java` + `RescheduleRequestRepository` + service/controller `EventService/OrderService/TicketService/SettingsService/RefundService/OrganizerService/OrderScheduler` + controller `Event/Order/Payment/Settings/Ticket/Refund/Reschedule/Audit/Organizer` + DTO `CreateEvent/EventResponse/CreateOrder/OrderResponse` etc. — semua sengaja dihapus untuk Auth Only.
 
-1. **Order Flow**: Customer creates order -> Order stays PENDING for 15 minutes (configurable) -> Customer pays -> Order becomes SUCCESS -> Tickets are created
-2. **Auto-Cancel**: `OrderScheduler` runs every 60 seconds to expire PENDING orders and restore ticket quotas
-3. **Ticket Check-in**: Scan ticket by `ticketItemId`, validates order is SUCCESS and ticket not yet redeemed
-4. **Admin Fee**: Configurable via Settings API (default Rp 5.000 per order)
-5. **Settings**: Admin fee and order expiry stored in database `settings` table, can be updated via API
-6. **Refund Flow**: Customer submits refund for SUCCESS order (set `customer`, `refundAmount` auto = order total) -> admin approve/reject -> admin mark refunded
-7. **Reschedule Flow**: EO submits new dates -> admin approve updates event start/end date, reject leaves event unchanged
-8. **Audit Trail**: `AuditLogService.log()` records actor, action, entity, detail on every key operation (login, register, order, payment, check-in, settings update, refund, reschedule, auto-expire)
+## Database Schema
+Migrasi: `src/main/resources/db/migration/V1__init_schema.sql` (`uuid-ossp`, 11 tabel, FK, index, default `ADMIN_FEE=5000`, `ORDER_EXPIRY_MINUTES=15`, `BOOKING_EXPIRY_MINUTES=10`).
 
-## Known Issues
+| Table | PK | FK |
+|---|---|---|
+| `users` | `user_id` UUID | — |
+| `auth` | `auth_id` UUID | `user_id` UNIQUE → users CASCADE |
+| `organizers` | `organizer_id` UUID | `user_id` UNIQUE → users |
+| `events` | `event_id` UUID | `organizer_id` → organizers RESTRICT |
+| `ticket_tiers` | `tier_id` UUID | `event_id` → events CASCADE |
+| `bookings` | `booking_id` UUID | `user_id`→users, `tier_id`→ticket_tiers |
+| `orders` | `order_id` UUID | `booking_id` UNIQUE, `customer_id`→users, `event_id`→events, `tier_id`→tiers |
+| `ticket_items` | `ticket_item_id` UUID | `order_id`→orders CASCADE, `tier_id`→tiers |
+| `refund_requests` | `refund_id` UUID | `customer_id`→users, `order_id`→orders |
+| `settings` | `settings_id` BIGSERIAL | — |
+| `audit_logs` | `audit_id` UUID | — |
 
-1. **No Authentication/Authorization**: `SecurityConfig` uses `anyRequest().permitAll()` - no JWT, all endpoints (incl. refund/reject/audit) are open. Super admin endpoints rely on hardcoded actor names.
-2. **Mock Payment Gateway**: `PaymentService.payOrder()` hardcodes SUCCESS payment status with fake `TRX-GW-...` - no real gateway integration
-3. **Incomplete Refund/Reschedule DTO Validation**: `RefundRequestDto.customerId` has no `@NotNull` - null causes 500 instead of clean 400
-4. **Config Duplication**: Admin fee/expiry defined both in `application.properties` (unused fallback) and `settings` table (source of truth)
+Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR default.
+
+## API Endpoints
+
+### ✅ AKTIF — Auth
+| Method | Endpoint | Auth | Flow |
+|---|---|---|---|
+| POST | `/api/v1/auth/register` | Public | validasi → cek duplikat email/nik → `User.Role.valueOf` fallback CUSTOMER → save `User` → `BCrypt` → save `Auth(INACTIVE)` → audit REGISTER → return tanpa token |
+| POST | `/api/v1/auth/login` | Public | find `User` → find `Auth` → `matches` → `jwtTokenProvider.generateToken(userId,email,role.name)` (86400000ms) → update `aksesToken/expiredToken/status ACTIVE` → audit LOGIN → return `token + expiresIn` |
+| POST | `/api/v1/auth/google` | Public | terima `idToken` frontend GIS → `GET https://oauth2.googleapis.com/tokeninfo?id_token=` → cek `aud==google.client-id` (jika diisi), `exp`, `email_verified` → find/create `User` by email → find/create `Auth` (password dummy BCrypt, `authGoogle` potong 20 char) → generate JWT sama → audit REGISTER_GOOGLE/LOGIN_GOOGLE |
+
+`POST /api/auth/**` juga permit (legacy).
+
+**JWT Middleware** `JwtAuthenticationFilter.java:23`: header `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_<role>` → `anyRequest.authenticated()`.
+
+**Google Flow (backend):** ID Token didapat di **frontend** via `https://accounts.google.com/gsi/client` (`data-client_id=google.client-id`), lalu `POST /api/v1/auth/google {idToken}`. Backend hanya verifikasi, tidak OAuth redirect.
+
+### ⏳ SCHEMA-ONLY (jangan implement kecuali diminta)
+`POST /api/events`, `GET /api/events`, `POST /api/orders`, `POST /api/payments/pay/{orderId}`, `POST /api/tickets/scan/{ticketItemId}`, `GET/PUT /api/settings`, `POST /api/refunds` — entity+table ready, 403 jika dipanggil.
+
+## Key Business Logic (Auth Only)
+- `CorsConfig.java:10` global `*` untuk ngrok (maxAge 3600, allowCredentials).
+- Password tidak pernah di `users`, hanya di `auth.password`. Untuk Google, password dummy UUID BCrypt (kolom NOT NULL).
+- Token disimpan di DB untuk invalidasi logout (`AuthService.logout` null-kan token, belum expose endpoint).
+- `authGoogle` `VARCHAR(20)` → potong `sub.substring(0,20)` (Google sub ~21 char).
+
+## Known Issues / TODO untuk AI
+1. `jwt.secret` hardcoded di properties — prod pindah ke env/Secret Manager.
+2. No refresh token, hanya access 24 jam.
+3. `@EnableScheduling` masih ada tapi tidak ada job (aman).
+4. `Settings.java` pakai `IDENTITY` BIGSERIAL bukan UUID (sesuai DDL).
+5. Jangan buat ulang `reschedule_requests`.
+6. Google `aud` tidak divalidasi jika `google.client-id` kosong — isi untuk produksi.
 
 ## Code Conventions
-
-- Package: `com.example.eventday`
-- Entity naming: singular (User, Event, Order)
-- Table naming: plural snake_case (users, events, orders)
-- Enum used for status fields (e.g., `OrderStatus`, `EventStatus`, `PaymentStatus`)
-- Lombok used for boilerplate (getters, setters, builders)
-- UUID as primary key for all entities
-- DTOs separate from entities (no exposing entity directly in responses)
-- `@Service` for business logic, `@RestController` for API layer
-- `@Transactional` on service methods that modify data
+- Package `com.example.eventday`, entity singular, table plural snake_case
+- PK `GenerationType.UUID` kecuali `settings_id`
+- Lombok `@Data @Builder @NoArgsConstructor @AllArgsConstructor`
+- DTO validasi `jakarta.validation`, `@Service @Transactional`, `@RestController`
+- `createdAt = LocalDateTime.now()` via `@Builder.Default`
 
 ## Build & Run
-
 ```bash
-# Build
-./mvnw clean install
-
-# Run
+./mvnw clean compile -DskipTests # BUILD SUCCESS 28 files (2026-09-02, +Google)
 ./mvnw spring-boot:run
-
-# Run with specific profile
-./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
-```
-
-## Testing
-
-```bash
-./mvnw test
+curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","password":"123456","role":"CUSTOMER"}'
+curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8081/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
+curl -H "Authorization: Bearer <token>" localhost:8081/any-protected # 403 tanpa token
 ```

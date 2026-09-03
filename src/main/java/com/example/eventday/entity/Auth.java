@@ -6,34 +6,37 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "users")
+@Table(name = "auth")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class User {
+public class Auth {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "user_id", updatable = false, nullable = false)
-    private UUID userId;
+    @Column(name = "auth_id", updatable = false, nullable = false)
+    private UUID authId;
 
-    @Column(nullable = false, length = 100, columnDefinition = "VARCHAR(100)")
-    private String name;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false, unique = true)
+    private User user;
 
-    @Column(nullable = false, unique = true, length = 150, columnDefinition = "VARCHAR(150)")
-    private String email;
+    @Column(nullable = false, columnDefinition = "VARCHAR(255)")
+    private String password;
 
-    @Column(length = 15, columnDefinition = "VARCHAR(15)")
-    private String phone;
+    @Column(name = "auth_google", length = 20, columnDefinition = "VARCHAR(20)")
+    private String authGoogle;
 
-    @Column(length = 16, columnDefinition = "VARCHAR(16)")
-    private String nik;
+    @Column(name = "akses_token", columnDefinition = "TEXT")
+    private String aksesToken;
 
-    @Enumerated(EnumType.STRING)
+    @Column(name = "expired_token")
+    private LocalDateTime expiredToken;
+
     @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
     @Builder.Default
-    private Role role = Role.CUSTOMER;
+    private String status = "INACTIVE";
 
     @Column(name = "created_at", updatable = false)
     @Builder.Default
@@ -48,8 +51,4 @@ public class User {
 
     @Column(name = "updated_by")
     private UUID updatedBy;
-
-    public enum Role {
-        CUSTOMER, ORGANIZER, ADMIN
-    }
 }
