@@ -15,6 +15,7 @@ Base URL: `http://localhost:8081`
 {
   "name": "John Doe",
   "email": "john@example.com",
+  "username": "johndoe_99",
   "phone": "08123456789",
   "password": "secret123",
   "role": "CUSTOMER",
@@ -25,21 +26,22 @@ Base URL: `http://localhost:8081`
 |---|---|---|
 | name | Yes | Max 100 |
 | email | Yes | Unique, @Email |
+| username | Yes | Unique, 3-20 chars, huruf/angka/underscore (`^[a-zA-Z0-9_]+$`) |
 | phone | No | Max 15 |
 | password | Yes | Min 6, BCrypt ke `auth` |
 | role | No | CUSTOMER/ORGANIZER/ADMIN fallback CUSTOMER |
 | nik | No | 16 digit, Unique |
 
-Flow `AuthService.java:30`: validasi → duplikat email/nik → `User` save → `Auth` save `INACTIVE` → audit REGISTER.
+Flow `AuthService.java:60`: validasi → duplikat email/username/nik → `User` save → `Auth` save `INACTIVE` → generate OTP → save `otp` → `sendOtpEmail` → audit REGISTER.
 
 ### Response 200
 ```json
-{"message":"Registrasi berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":null,"expiresIn":null}
+{"message":"Registrasi berhasil! OTP telah dikirim ke email Anda.","userId":"...","name":"John Doe","email":"john@example.com","username":"johndoe_99","role":"CUSTOMER","token":null,"expiresIn":null}
 ```
-400: `"Email sudah terdaftar!"` / `"NIK sudah terdaftar!"`
+400: `"Email sudah terdaftar!"` / `"Username sudah terdaftar!"` / `"NIK sudah terdaftar!"`
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","username":"john123","password":"123456"}'
 ```
 
 ---
@@ -48,21 +50,32 @@ curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/j
 
 **POST** `/api/v1/auth/login`
 
-Flow `AuthService.java:78`: `findByEmail` → `findByUserUserId` → `matches` → `jwtTokenProvider.generateToken(userId,email,role)` (86400000ms) → update `aksesToken/expiredToken/ACTIVE` → return.
+Login support **email ATAU username** + password. Backend deteksi `identifier` mengandung `@` → cari by email, else by username (fallback cross-check).
 
-### Request
+Flow `AuthService.java:126`: `getIdentifier()` → `findByEmail`/`findByUsername` → `findByUserUserId` → `matches` → cek `status ACTIVE` → `jwtTokenProvider.generateToken(userId,email,role)` (86400000ms) → update `aksesToken/expiredToken/ACTIVE` → return.
+
+### Request (email)
 ```json
 {"email":"john@example.com","password":"123456"}
+```
+### Request (username)
+```json
+{"username":"johndoe_99","password":"123456"}
+```
+### Request (generic identifier)
+```json
+{"identifier":"johndoe_99","password":"123456"}
 ```
 
 ### Response 200
 ```json
-{"message":"Login berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}
+{"message":"Login berhasil!","userId":"...","name":"John Doe","email":"john@example.com","username":"johndoe_99","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}
 ```
-400: `"Email atau password salah!"`
+400: `"Email atau username harus diisi!"` / `"Email atau password salah!"` / `"Akun belum aktif! Silakan verifikasi OTP terlebih dahulu."`
 
 ```bash
 curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"username":"johndoe_99","password":"123456"}'
 ```
 
 ---
@@ -104,7 +117,101 @@ curl -X POST localhost:8081/api/v1/auth/google -H "Content-Type: application/jso
 
 ---
 
-## 4. Middleware JWT
+---
+
+## 4. Auth - Verify OTP
+
+**POST** `/api/v1/auth/verify-otp`
+
+Mengaktifkan akun setelah registrasi.
+
+### Request
+```json
+{"email":"john@example.com","otpCode":"123456"}
+```
+| Field | Required | Notes |
+|---|---|---|
+| email | Yes | @NotBlank, @Email |
+| otpCode | Yes | @NotBlank |
+
+### Response 200
+```json
+{"message":"OTP terverifikasi! Akun aktif, silakan login."}
+```
+400: `"Kode OTP tidak valid!"`, `"Kode OTP sudah expired!"`
+
+---
+
+## 5. Auth - Resend OTP
+
+**POST** `/api/v1/auth/resend-otp`
+
+Kirim ulang OTP baru jika yang lama expired. Menghapus OTP sebelumnya.
+
+### Request
+```json
+{"email":"john@example.com"}
+```
+
+### Response 200
+```json
+{"message":"OTP baru berhasil dikirim ke email Anda!"}
+```
+
+---
+
+## 6. Auth - Reset Password
+
+**POST** `/api/v1/auth/reset-password` — single endpoint 3 mode untuk flow frontend OTP → Lanjutkan → New Password
+
+Endpoint ini menangani 3 mode Lupa Password (agar frontend `klik Lanjutkan → pindah halaman`):
+- **Mode 1 — Kirim OTP:** body `{"email"}` → generate 6-digit OTP → `password_reset_tokens` (+15min) → kirim email OTP
+- **Mode 2 — Verifikasi OTP (klik Lanjutkan):** body `{"email","code"}` tanpa `newPassword` → cek `code` valid & belum expired → return `Kode OTP valid!` → frontend `navigate("/reset-password/new")`
+- **Mode 3 — Reset Password:** body `{"email","code","newPassword"}` → verifikasi + update `Auth.password` BCrypt → delete token
+
+### Request Mode 1 (Minta OTP)
+```json
+{"email":"john@example.com"}
+```
+```bash
+curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'
+```
+### Response Mode 1
+```json
+{"message":"Kode OTP berhasil dikirim ke email Anda!"}
+```
+
+### Request Mode 2 (Verifikasi OTP — klik Lanjutkan)
+```json
+{"email":"john@example.com","code":"123456"}
+```
+```bash
+curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456"}'
+```
+### Response Mode 2
+```json
+{"message":"Kode OTP valid! Silakan buat password baru."}
+```
+400: `"Kode OTP tidak valid!"` / `"Kode OTP sudah expired!"`
+
+### Request Mode 3 (Reset Password)
+```json
+{"email":"john@example.com","code":"123456","newPassword":"newPassword123"}
+```
+| Field | Required | Notes |
+|---|---|---|
+| email | Yes | |
+| code | Mode 2 & 3 | OTP 6 digit dari email |
+| newPassword | Mode 3 only | Min 6 karakter |
+
+### Response Mode 3
+```json
+{"message":"Password berhasil direset! Silakan login dengan password baru."}
+```
+400: `"Password baru minimal 6 karakter"`, `"Kode OTP tidak valid/expired"`
+
+
+## 7. Middleware JWT
 
 Semua selain `/api/v1/auth/**` butuh JWT `SecurityConfig.java:30` `STATELESS`.
 

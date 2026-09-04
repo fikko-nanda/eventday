@@ -30,6 +30,10 @@ public class User {
     @Column(length = 16, columnDefinition = "VARCHAR(16)")
     private String nik;
 
+    @Column(nullable = false, unique = true, length = 20, columnDefinition = "VARCHAR(20)")
+    @Builder.Default
+    private String username = UUID.randomUUID().toString().substring(0, 20);
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
     @Builder.Default

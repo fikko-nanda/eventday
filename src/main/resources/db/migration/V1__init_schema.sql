@@ -13,6 +13,7 @@ CREATE TABLE users (
     email           VARCHAR(150) NOT NULL UNIQUE,
     phone           VARCHAR(15),
     nik             VARCHAR(16) UNIQUE,
+    username        VARCHAR(20) NOT NULL DEFAULT '',
     role            VARCHAR(20) NOT NULL DEFAULT 'CUSTOMER',
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     create_by       UUID,
