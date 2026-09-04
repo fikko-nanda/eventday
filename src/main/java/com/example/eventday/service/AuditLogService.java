@@ -12,7 +12,7 @@ import java.util.UUID;
 public class AuditLogService {
 
     private final AuditLogRepository auditLogRepository;
-
+@SuppressWarnings("null")
     public void log(UUID actorId, String actorName, String action, String detail) {
         AuditLog log = AuditLog.builder()
                 .actorId(actorId)

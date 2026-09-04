@@ -36,6 +36,12 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Mail Starter (OTP & Reset Password) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <!-- Validation & Security -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -84,6 +90,7 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
     <build>
         <plugins>
             <plugin>

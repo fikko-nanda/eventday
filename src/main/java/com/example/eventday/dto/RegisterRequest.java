@@ -16,6 +16,11 @@ public class RegisterRequest {
     @Email(message = "Format email tidak valid")
     private String email;
 
+    @NotBlank(message = "Username tidak boleh kosong")
+    @Size(min = 3, max = 20, message = "Username 3-20 karakter")
+    @Pattern(regexp = "^[a-zA-Z0-9_]+$", message = "Username hanya huruf, angka, underscore")
+    private String username;
+
     @Size(max = 15, message = "Telepon maksimal 15 karakter")
     private String phone;
 
