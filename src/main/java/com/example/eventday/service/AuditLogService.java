@@ -9,6 +9,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class AuditLogService {
 
     private final AuditLogRepository auditLogRepository;

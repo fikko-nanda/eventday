@@ -1,169 +1,382 @@
 # API.md - Eventday REST API Documentation
 
-Base URL: `http://localhost:8081`
+Base URL: `http://localhost:8082`
 
-> **Status:** Hanya modul **Auth** yang aktif (+ Google Login). Modul lain masih **SCHEMA ONLY**.
+> **Status:** Hanya modul **Auth** yang aktif (+ Google Login + OTP). Modul lain masih **SCHEMA ONLY**. Backend `port 8082`, `jwt 24 jam`, `CORS *` untuk ngrok.
+> **Response Standard:** Semua API sekarang pakai format ** `{msg, status, data}` ** — `status` = HTTP code, `msg` = pesan, `data` = payload / `null`.
+
+```json
+// sukses
+{"msg":"Login berhasil!","status":200,"data":{"userId":"...","name":"...","token":"eyJ..."}}
+// error
+{"msg":"Email atau password salah!","status":400,"data":null}
+// 401/403 dari Security
+{"msg":"Unauthorized: token tidak ada atau tidak valid","status":401,"data":""}
+{"msg":"Forbidden: akses ditolak","status":403,"data":""}
+```
+
+---
+
+## Daftar Endpoint Auth (Public)
+
+| # | Method | Endpoint | Deskripsi | HTTP |
+|---|--------|----------|-----------|------|
+| 1 | POST | `/api/v1/auth/register` | Registrasi + kirim OTP | `201` sukses, `400` duplikat |
+| 2 | POST | `/api/v1/auth/verify-otp` | Aktivasi akun | `200` |
+| 3 | POST | `/api/v1/auth/resend-otp` | Kirim ulang OTP | `200` |
+| 4 | POST | `/api/v1/auth/login` | Login email/username | `200` |
+| 5 | POST | `/api/v1/auth/google` | Login Google GIS | `200` / `201` baru |
+| 6 | POST | `/api/v1/auth/reset-password` | Lupa password 2 tahap | `200` |
+
+Alias legacy `POST /api/auth/**` juga permit.
 
 ---
 
 ## 1. Auth - Register
 
-**POST** `/api/v1/auth/register` (alias `/api/auth/register` juga permit)
+**POST** `/api/v1/auth/register` → `201`
 
 ### Request
 ```json
 {
   "name": "John Doe",
   "email": "john@example.com",
+  "username": "johndoe_99",
   "phone": "08123456789",
   "password": "secret123",
   "role": "CUSTOMER",
   "nik": "3201234567890123"
 }
 ```
-| Field | Required | Notes |
+| Field | Required | Validasi |
 |---|---|---|
-| name | Yes | Max 100 |
-| email | Yes | Unique, @Email |
-| phone | No | Max 15 |
-| password | Yes | Min 6, BCrypt ke `auth` |
-| role | No | CUSTOMER/ORGANIZER/ADMIN fallback CUSTOMER |
-| nik | No | 16 digit, Unique |
+| name | Yes | max 100 |
+| email | Yes | `@Email`, unique |
+| username | Yes | `3-20`, `^[a-zA-Z0-9_]+$`, unique |
+| phone | No | max 15 |
+| password | Yes | min 6, di-BCrypt ke `auth.password` |
+| role | No | `CUSTOMER`/`ORGANIZER`/`ADMIN`, fallback `CUSTOMER` |
+| nik | No | `^\d{16}$`, unique |
 
-Flow `AuthService.java:30`: validasi → duplikat email/nik → `User` save → `Auth` save `INACTIVE` → audit REGISTER.
+Flow `AuthService.java:61`: cek duplikat `email/username/nik` → `save User` → `save Auth(INACTIVE)` → generate OTP 6-digit `app.otp.length=6` exp `5 menit` → `save otp` → `sendOtpEmail` (Mailtrap, gagal → log warn + OTP tetap di log) → `audit REGISTER`.
 
-### Response 200
+### Response `201`
 ```json
-{"message":"Registrasi berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":null,"expiresIn":null}
+{
+  "msg":"Registrasi berhasil! OTP telah dikirim ke email Anda.",
+  "status":201,
+  "data":{
+    "message":"Registrasi berhasil! OTP telah dikirim ke email Anda.",
+    "userId":"uuid",
+    "name":"John Doe",
+    "email":"john@example.com",
+    "username":"johndoe_99",
+    "role":"CUSTOMER",
+    "token":null,
+    "expiresIn":null
+  }
+}
 ```
-400: `"Email sudah terdaftar!"` / `"NIK sudah terdaftar!"`
+### Error `400`
+```json
+{"msg":"Email sudah terdaftar!","status":400,"data":null}
+{"msg":"Username sudah terdaftar!","status":400,"data":null}
+{"msg":"NIK sudah terdaftar!","status":400,"data":null}
+{"msg":"name: Nama tidak boleh kosong, username: Username 3-20 karakter","status":400,"data":null}
+```
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8081/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"John","email":"john@mail.com","username":"john123","password":"123456"}'
+# Network tab: Status 201, Response {msg, status:201, data:{...}}
 ```
+
+> Setelah register, user **INACTIVE** — harus `verify-otp` dulu baru bisa login.
 
 ---
 
-## 2. Auth - Login
+## 2. Auth - Verify OTP
 
-**POST** `/api/v1/auth/login`
-
-Flow `AuthService.java:78`: `findByEmail` → `findByUserUserId` → `matches` → `jwtTokenProvider.generateToken(userId,email,role)` (86400000ms) → update `aksesToken/expiredToken/ACTIVE` → return.
+**POST** `/api/v1/auth/verify-otp` → `200`
 
 ### Request
 ```json
-{"email":"john@example.com","password":"123456"}
+{"email":"john@example.com","otpCode":"123456"}
 ```
 
-### Response 200
+### Response `200`
 ```json
-{"message":"Login berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}
+{"msg":"OTP terverifikasi! Akun aktif, silakan login.","status":200,"data":null}
 ```
-400: `"Email atau password salah!"`
+### Error `400`
+```json
+{"msg":"Kode OTP tidak valid!","status":400,"data":null}
+{"msg":"Kode OTP sudah expired!","status":400,"data":null}
+```
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8081/api/v1/auth/verify-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com","otpCode":"123456"}'
 ```
 
 ---
 
-## 3. Auth - Google Login (Baru)
+## 3. Auth - Resend OTP
 
-**POST** `/api/v1/auth/google`
+**POST** `/api/v1/auth/resend-otp` → `200`
 
-ID Token diambil **di frontend** via Google Identity Services, backend hanya verifikasi.
+### Request
+```json
+{"email":"john@example.com"}
+```
 
-Flow `AuthService.java:115` `loginWithGoogle()`:
+### Response `200`
+```json
+{"msg":"OTP baru berhasil dikirim ke email Anda!","status":200,"data":null}
+```
+
+```bash
+curl -X POST localhost:8081/api/v1/auth/resend-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'
+```
+
+---
+
+## 4. Auth - Login
+
+**POST** `/api/v1/auth/login` → `200`
+
+Support **email ATAU username ATAU identifier** + password. Backend `LoginRequest.java:6` `getIdentifier()` deteksi `contains("@")` → cari by email else username, fallback cross-check.
+
+### Request varian
+```json
+{"email":"john@example.com","password":"123456"}
+{"username":"johndoe_99","password":"123456"}
+{"identifier":"johndoe_99","password":"123456"}
+```
+
+Flow `AuthService.java:124`: resolve identifier → `findByUserUserId` → `matches` → cek `status ACTIVE` else `Akun belum aktif!` → `jwtTokenProvider.generateToken(userId,email,role)` `86400000ms` → `update aksesToken/expiredToken/ACTIVE` → return.
+
+### Response `200`
+```json
+{
+  "msg":"Login berhasil!",
+  "status":200,
+  "data":{
+    "message":"Login berhasil!",
+    "userId":"uuid",
+    "name":"John Doe",
+    "email":"john@example.com",
+    "username":"johndoe_99",
+    "role":"CUSTOMER",
+    "token":"eyJhbGciOiJIUzI1NiJ9...",
+    "expiresIn":86400
+  }
+}
+```
+`data.expiresIn` detik (`86400` = 24 jam). Simpan `data.token` → header `Authorization: Bearer <token>`.
+
+### Error `400`
+```json
+{"msg":"Email atau username harus diisi!","status":400,"data":null}
+{"msg":"Email atau password salah!","status":400,"data":null}
+{"msg":"Akun belum aktif! Silakan verifikasi OTP terlebih dahulu.","status":400,"data":null}
+```
+
+```bash
+curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
+# ambil token: data.token
+TOKEN=$(curl -s -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .data.token)
+```
+
+---
+
+## 5. Auth - Google Login
+
+**POST** `/api/v1/auth/google` → `200` (login) / `201` (registrasi baru)
+
+Flow `AuthService.java:190`:
 1. `GET https://oauth2.googleapis.com/tokeninfo?id_token=<idToken>` (RestTemplate)
-2. cek `aud==google.client-id` (jika `google.client-id` diisi di `application.properties:19`), cek `exp`, `email_verified`
-3. `findByEmail` → jika null buat `User(name,email,role=CUSTOMER)` (isNewUser)
-4. `findByUserUserId` → jika null buat `Auth(password dummy BCrypt, authGoogle= sub.substring(0,20))` else update `authGoogle`
-5. `jwtTokenProvider.generateToken()` → `aksesToken/expiredToken/ACTIVE` → audit `REGISTER_GOOGLE/LOGIN_GOOGLE` → return JWT sama seperti login.
+2. cek `aud==google.client-id` (`875040780549-...apps.googleusercontent.com`), cek `exp`, `email_verified==true`
+3. `findByEmail` → jika null buat `User(name,email,username auto dari email, role=CUSTOMER)`
+4. `findByUserUserId` → jika null buat `Auth(password dummy BCrypt UUID, authGoogle=sub[0:20])` else update `authGoogle`
+5. `generateToken()` → `aksesToken/expiredToken/ACTIVE` → `audit REGISTER_GOOGLE/LOGIN_GOOGLE`
 
 ### Request
 ```json
 {"idToken":"eyJhbGciOiJSUzI1NiIs...Google ID Token..."}
 ```
-| Field | Required | Notes |
-|---|---|---|
-| idToken | Yes | @NotBlank, ID Token JWT dari `google.accounts.id` GIS |
 
-### Response 200
+### Response `200` / `201`
 ```json
-{"message":"Login via Google berhasil!","userId":"...","name":"John Doe","email":"john@example.com","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}
+{"msg":"Login via Google berhasil!","status":200,"data":{"message":"Login via Google berhasil!","userId":"...","name":"...","email":"...","username":"...","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}}
+{"msg":"Registrasi via Google berhasil!","status":201,"data":{...}}
 ```
-atau jika baru: `"Registrasi via Google berhasil!"`. 400 jika token invalid/expired/aud mismatch/email_verified false.
+Error `400` `{"msg":"Token Google tidak valid: ...","status":400,"data":null}`
 
 ```bash
 curl -X POST localhost:8081/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
 ```
 
-**Frontend:** `https://accounts.google.com/gsi/client` + `data-client_id=google.client-id` → `res.credential` → POST ke backend. Lihat `handle()` contoh di chat.
-
-> `authGoogle` `VARCHAR(20)` → disubstring 20 char. `password` dummy UUID BCrypt karena kolom NOT NULL. Jika `google.client-id` kosong, validasi aud diskip (dev).
+**Frontend GIS:** `https://accounts.google.com/gsi/client` + `data-client_id=google.client-id` → `res.credential` → `POST /google` → `data.token`.
 
 ---
 
-## 4. Middleware JWT
+## 6. Auth - Reset Password (Lupa Password)
 
-Semua selain `/api/v1/auth/**` butuh JWT `SecurityConfig.java:30` `STATELESS`.
+**POST** `/api/v1/auth/reset-password` — **single endpoint 2 tahap**.
 
-`JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `ROLE_*` → `anyRequest.authenticated()`.
+*   **Tahap 1** `code` kosong → minta kode ke email
+*   **Tahap 2** `code` terisi → verifikasi & ganti password
+
+Backend `ResetPasswordRequest.java:8` support alias: `code` alias `token`/`otp`, `newPassword` alias `password`/`new_password`. `AuthService.java:302` pakai `getEffectiveCode()` trim.
+
+### Tahap 1 - Minta Kode
+```json
+{"email":"john@example.com"}
+```
+Response `200`:
+```json
+{"msg":"Kode reset password berhasil dikirim ke email Anda!","status":200,"data":null}
+```
+Generate 6-digit `app.reset-password.code-length=6`, simpan `auth.reset_token` + `auth.reset_expired_at` exp `15 menit` (digabung ke `auth` sesuai mentor), kirim via `EmailService`.
 
 ```bash
-TOKEN=$(curl -s -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .token)
-curl localhost:8081/protected -H "Authorization: Bearer $TOKEN"
-# 403 tanpa token / expired / logout
+curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'
 ```
 
-Config `application.properties:19`:
-```properties
-jwt.secret=eventday-super-secret-key-min-32-chars-change-in-production-123456
-jwt.expiration-ms=86400000
-google.client-id= # kosong = tidak cek aud
+### Tahap 2 - Reset Password
+```json
+{"email":"john@example.com","code":"123456","newPassword":"newPassword123"}
+```
+Juga valid: `{"email":"...","token":"123456","password":"..."}`
+Response `200`:
+```json
+{"msg":"Password berhasil direset! Silakan login dengan password baru.","status":200,"data":null}
+```
+Error `400`:
+```json
+{"msg":"Password baru minimal 6 karakter","status":400,"data":null}
+{"msg":"Kode reset password tidak valid/expired","status":400,"data":null}
 ```
 
-Logout internal `AuthService.logout(userId)` null-kan token, belum expose endpoint.
+```bash
+curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456","newPassword":"newPass123"}'
+```
 
 ---
 
-## ⏳ Modul Lain — SCHEMA ONLY
+## 7. Middleware JWT & Protected Routes
 
-| Modul | Endpoint Rencana | Status |
-|---|---|---|
-| Events | `POST /api/events`, `GET /api/events` | DB ready |
-| Orders | `POST /api/orders` | DB ready |
-| Payments | `POST /api/payments/pay/{orderId}` | DB ready |
-| Tickets | `POST /api/tickets/scan/{ticketItemId}` | DB ready |
-| Settings | `GET/PUT /api/settings/**` | DB ready |
-| Refunds | `POST /api/refunds` | DB ready |
-| Audit | `GET /api/audit/**` | hanya log internal |
+Semua selain `/api/v1/auth/**` butuh JWT. `SecurityConfig.java:31` `STATELESS`.
+
+`JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`.
+
+`SecurityConfig.java` kini return standard `msg/status/data` untuk `401/403`:
+
+```json
+// tanpa token
+{"msg":"Unauthorized: token tidak ada atau tidak valid","status":401,"data":""}
+// token salah/expired/inactive
+{"msg":"Forbidden: akses ditolak","status":403,"data":""}
+```
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .data.token)
+curl localhost:8081/api/events -H "Authorization: Bearer $TOKEN"  # 200 jika events aktif, 403 jika schema-only
+curl localhost:8081/api/events  # -> 401 {msg, status:401}
+curl localhost:8081/ # -> 200 {msg, status:200, data:"OK"}
+```
+
+Config `application.properties`:
+```properties
+jwt.secret=eventday-super-secret-key-min-32-chars-change-in-production-123456
+jwt.expiration-ms=86400000 # 24 jam -> data.expiresIn 86400
+google.client-id=875040780549-1jq8bicaq1ne1ltjt7bfjcfjo82e5dj0.apps.googleusercontent.com
+```
+
+---
+
+## ⏳ Modul Lain — SCHEMA ONLY (belum aktif)
+
+| Modul | Rencana Endpoint | Status | HTTP |
+|---|---|---|---|
+| Events | `POST /api/events`, `GET /api/events` | DB ready | `401/403` dengan `{msg,status,data}` |
+| Orders | `POST /api/orders` | DB ready | `401/403` |
+| Payments | `POST /api/payments/pay/{orderId}` | DB ready | `401/403` |
+| Tickets | `POST /api/tickets/scan/{ticketItemId}` | DB ready | `401/403` |
+| Settings | `GET/PUT /api/settings/**` | DB ready | `401/403` |
+| Refunds | `POST /api/refunds` | DB ready | `401/403` |
+| Audit | `GET /api/audit/**` | hanya log internal | `401/403` |
 
 `RescheduleRequest` **dihapus** — jangan panggil.
 
 ---
 
+## Error Format Global (sudah rapi)
+
+`dto/ApiResponse.java:10` `GlobalExceptionHandler.java:10` + `SecurityConfig.java:33` — semua return `{msg,status,data}`:
+
+*   Validasi `@Valid` → `400` `{"msg":"username: Username 3-20 karakter","status":400,"data":null}`
+*   `RuntimeException` → `400`
+*   `AuthenticationException` → `401`
+*   `AccessDeniedException` → `403`
+*   `Exception` → `500`
+*   Sukses → `200` / `201` (register/google baru)
+
+Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk branching, `data` untuk payload. `HomeController.java:10` juga sudah `{msg,status:200,data:"OK"}`.
+
+---
+
 ## Enum
 
-`User.role`: CUSTOMER (default) / ORGANIZER / ADMIN
-`Auth.status`: INACTIVE / ACTIVE
-LAIN schema-only: `organizers.verification_status UNVERIFIED`, `events.status DRAFT`, `bookings/orders PENDING`, `ticket_items UNREDEEMED`, `refund_requests PENDING`
+*   `User.role`: `CUSTOMER` (default) / `ORGANIZER` / `ADMIN`
+*   `Auth.status`: `INACTIVE` / `ACTIVE`
+*   Lain schema-only: `organizers.verification_status UNVERIFIED`, `events.status DRAFT`, `bookings/orders PENDING`, `ticket_items UNREDEEMED`, `refund_requests PENDING`
 
 ---
 
-## Flow Diagram
+## Flow Diagram Frontend (pakai `.data`)
+
 ```
-register (email/pass) ─→ login (email/pass) ─┐
-                                             ├→ JWT Eventday → Bearer → Filter → Protected
-google GIS (idToken) ──→ POST /google ───────┘       (RestTemplate tokeninfo, find/create User+Auth)
+register {name,email,username,password} --201 {msg,status:201,data} OTP--> verify-otp {email,otpCode} --200 {msg,status:200}--> login {identifier,password} --200 {msg,status:200,data.token}--> simpan data.token
+                                                                                                           |
+google GIS idToken ------------------------POST /google --200/201 {msg,status,data.token}----------------+
+                                                                                                           |
+lupa password: POST /reset-password {email} --200 {msg}--email code--> POST /reset-password {email,code,newPassword} --200 {msg}--> login baru
 ```
-DB: `users --1:1-- auth (hash+googleId+token)`
+
+DB: `users --1:1-- auth (hash+googleId+token+resetToken) --1:N-- otp` (`password_reset_tokens` dihapus, digabung ke `auth`)
 
 ---
 
-## Notes Frontend
-1. Base `http://localhost:8081`
-2. Register/login simpan `token`, kirim `Authorization: Bearer <token>`
-3. Google: `https://accounts.google.com/gsi/client` + `CLIENT_ID` → `res.credential` → POST ke `/google`
-4. `google.client-id` harus sama di frontend & backend
-5. Tanpa token 403, modul lain 403/404 sampai diaktifkan
+## Notes Frontend (copy-paste ready dengan `msg/status/data`)
+
+```js
+// helper fetch standar
+async function api(path, body, token){
+  const res = await fetch(`http://localhost:8081${path}`, {
+    method:'POST', headers:{'Content-Type':'application/json', ...(token&&{Authorization:`Bearer ${token}`})},
+    body: JSON.stringify(body)
+  });
+  const json = await res.json(); // {msg, status, data}
+  if(!res.ok) throw new Error(json.msg); // tampilkan json.msg di toast
+  return json; // pakai json.data
+}
+
+// contoh
+const reg = await api('/api/v1/auth/register', {name,email,username,password}); // reg.status 201
+const v = await api('/api/v1/auth/verify-otp', {email, otpCode});
+const login = await api('/api/v1/auth/login', {identifier: email, password}); // login.data.token
+localStorage.setItem('token', login.data.token);
+```
+
+1. Base `http://localhost:8081`, `Content-Type: application/json` selalu.
+2. Cek `json.status` (bukan `res.status` saja) & `json.msg` untuk notifikasi.
+3. Register `201` → langsung ke form OTP.
+4. Login `200` → `data.token` + `data.expiresIn`.
+5. Tanpa token → `401/403` dengan `msg` yang sama — redirect ke login.
+6. `CORS *` sudah allow, `maxAge 3600`, `allowCredentials true` — aman untuk ngrok.
+7. OTP `5 menit`, Reset code `15 menit`, JWT `24 jam`.
+8. `ApiLoggingFilter.java:10` log tiap hit: `[API HIT] POST /api/v1/auth/login -> 200 (45ms)`.
+```
+

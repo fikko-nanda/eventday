@@ -38,6 +38,12 @@ public class Auth {
     @Builder.Default
     private String status = "INACTIVE";
 
+    @Column(name = "reset_token", length = 255, columnDefinition = "VARCHAR(255)")
+    private String resetToken;
+
+    @Column(name = "reset_expired_at")
+    private LocalDateTime resetExpiredAt;
+
     @Column(name = "created_at", updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

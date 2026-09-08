@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableScheduling // Mengaktifkan fitu cron job / background scheduler
+@EnableScheduling 
 public class EventdayApplication {
 
     public static void main(String[] args) {
