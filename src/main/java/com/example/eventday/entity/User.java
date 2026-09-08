@@ -24,6 +24,9 @@ public class User {
     @Column(nullable = false, unique = true, length = 150, columnDefinition = "VARCHAR(150)")
     private String email;
 
+    @Column(unique = true, length = 20, columnDefinition = "VARCHAR(20)")
+    private String username;
+
     @Column(length = 15, columnDefinition = "VARCHAR(15)")
     private String phone;
 

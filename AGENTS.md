@@ -1,142 +1,214 @@
 # AGENTS.md - Eventday Ticketing Backend
 
 ## Project Overview
-Eventday adalah backend ticketing Spring Boot 3.x (Java 21, PostgreSQL, Maven, port 8081) untuk penjualan tiket event. Fokus: manajemen user, organizer, event, ticket, booking/order, payment, refund.
+Spring Boot 3.2.4 (Java 21, target Java 25) REST API, PostgreSQL, Maven, port 8081. Eventday ticketing: user/organizer/event/ticket/booking/order/payment/refund management.
 
-> **Status 2026-09-02 (kirim ini ke AI):**
-> - **Tahap 1 — JPA Entities LENGKAP 10 tabel (11 physical): SELESAI.** `V1__init_schema.sql` + entities di `entity/` 100% siap. **RescheduleRequest DIHAPUS** (tidak ada di prompt terbaru).
-> - **Tahap 2 — Auth Only SELESAI (+ Google Login di backend).** `POST /api/v1/auth/register` & `POST /api/v1/auth/login` & `POST /api/v1/auth/google` + JWT + CORS yang aktif. Modul lain (Event/Booking/Order/Ticket/Refund/Settings) **schema-only**: tabel+entity ada, service/controller/repo belum dibuat.
+> **Status 2026-09-07:** Tahap 1 (JPA Entities 12 tabel - reset password digabung ke auth) & Tahap 2 (Auth Only + Google Login + OTP + Reset Password) **SELESAI**. Test `AuthFlowIntegrationTest` 21 cases PASS.
 
-AI harus: jangan buat endpoint Event/Order dll kecuali diminta; jangan buat ulang tabel reschedule; ikuti struktur di bawah.
+> **Status 2026-09-04:** `.github/modernize/java-upgrade/20260904031947/` — active plan to upgrade Java 21 → 25. Do NOT execute unless explicitly asked.
+
+AI harus: jangan buat endpoint Event/Order/etc kecuali diminta; jangan buat ulang tabel reschedule; ikuti struktur di bawah. Frontend baca `API.md`.
+
+## Source of Truth
+- **Dependencies**: `pom.xml` (authoritative — AGENTS.md tech table may lag)
+- **Runtime config**: `src/main/resources/application.properties`
+- **API docs**: `API.md` (human-friendly, lengkap dengan curl & response untuk frontend)
+- **Schema**: `src/main/resources/db/migration/V1__init_schema.sql`
+- **Tests**: `src/test/java/com/example/eventday/AuthFlowIntegrationTest.java` (21) + `EventdayApplicationTests.java` (contextLoads)
 
 ## Tech Stack
 | Dependency | Purpose |
 |---|---|
-| `spring-boot-starter-web` (3.2.4) | REST + RestTemplate (verifikasi Google) |
+| `spring-boot-starter-web` (3.2.4) | REST + `RestTemplate` (verifikasi Google) |
 | `spring-boot-starter-data-jpa` | ORM |
-| `spring-boot-starter-validation` | `@NotBlank @Email @Size` di DTO |
+| `spring-boot-starter-validation` | `@NotBlank @Email @Size @Pattern` di DTO |
 | `spring-boot-starter-security` | `BCryptPasswordEncoder`, `SecurityFilterChain` |
+| `spring-boot-starter-mail` | OTP & reset password email (Mailtrap sandbox) |
 | `postgresql` | Driver |
 | `jjwt-api:0.12.5` + `jjwt-impl` + `jjwt-jackson` | JWT HS256 |
 | `lombok` | `@Data @Builder` |
-| `spring-boot-starter-test` + `spring-security-test` | Test |
+| `spring-boot-starter-test` + `spring-security-test` | Test (MockMvc) |
+| `@EnableScheduling` on `EventdayApplication` | Scheduler enabled (no jobs yet) |
 
-Config `application.properties`:
+`application.properties` key values:
 ```properties
 server.port=8081
 spring.datasource.url=jdbc:postgresql://localhost:5432/db_eventday
 spring.datasource.username=postgres
 spring.datasource.password=fikko04
 spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
 jwt.secret=eventday-super-secret-key-min-32-chars-change-in-production-123456
 jwt.expiration-ms=86400000
-google.client-id=   # kosong = tidak validasi aud, isi xxxx.apps.googleusercontent.com untuk validasi ketat
+google.client-id=875040780549-1jq8bicaq1ne1ltjt7bfjcfjo82e5dj0.apps.googleusercontent.com  # ISI, bukan kosong!
+app.order.admin-fee=5000
+app.order.expiry-minutes=15
+# Mailtrap sandbox SMTP
+spring.mail.host=sandbox.smtp.mailtrap.io
+spring.mail.port=2525
+spring.mail.username=b3eb7c16eae2ee
+spring.mail.password=a5cd8a29ea8ba7
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+app.mail.from=noreply@eventday.local
+app.mail.from-name=Eventday
+app.otp.expiry-minutes=5
+app.otp.length=6
+app.reset-password.code-length=6
+app.reset-password.expiry-minutes=15
+app.reset-password.frontend-url=http://localhost:3000
+# Logging
+logging.level.root=INFO
+logging.level.com.example.eventday=DEBUG
+logging.level.org.springframework.security=DEBUG
+logging.level.org.hibernate.SQL=DEBUG
+logging.file.name=logs/eventday.log
 ```
 
-## Project Structure (yang benar — kirim ini)
+## Project Structure
 ```
 src/main/java/com/example/eventday/
-├── EventdayApplication.java
-├── config/
-│   ├── CorsConfig.java          # GLOBAL CORS * (ngrok) — allowedOriginPatterns *, allowCredentials true
-│   └── SecurityConfig.java      # BCrypt, STATELESS, .cors(), csrf.disable(), permitAll /api/v1/auth/**, addFilterBefore JwtAuthenticationFilter
-├── security/
-│   ├── JwtTokenProvider.java    # UTAMA — @Value("${jwt.secret}") + @Value("${jwt.expiration-ms}") jjwt 0.12.5, generate/parse/validate, HS256
-│   ├── JwtUtil.java             # COMPAT — sama logic dengan default fallback, dipakai legacy (jangan hapus)
-│   └── JwtAuthenticationFilter.java # OncePerRequestFilter, cek Bearer, validate, cek auth.status==ACTIVE && aksesToken==token, set ROLE_*
+├── EventdayApplication.java          # @SpringBootApplication @EnableScheduling
 ├── controller/
-│   └── AuthController.java      # POST /api/v1/auth/register, POST /api/v1/auth/login, POST /api/v1/auth/google (juga permit /api/auth/** legacy)
+│   ├── AuthController.java           # POST /api/v1/auth/register, login, google, verify-otp, resend-otp, reset-password
+│   └── HomeController.java           # GET "/" → "Eventday API Server is Running!"
+├── config/
+│   ├── CorsConfig.java               # GLOBAL CORS * (ngrok), allowCredentials true, maxAge 3600
+│   ├── ApiLoggingFilter.java         # OncePerRequestFilter log [API HIT]/[API DONE] method URI status duration
+│   ├── GlobalExceptionHandler.java   # @RestControllerAdvice handle Validation/401/403 -> ApiResponse
+│   └── SecurityConfig.java           # BCrypt, STATELESS, / & /error permitAll, /api/v1/auth/** permitAll, /api/auth/** permitAll (legacy), JwtAuthenticationFilter + 401/403 Json ApiResponse
+├── security/
+│   ├── JwtTokenProvider.java         # @Value jwt.secret + jwt.expiration-ms, HS256 generate/validate
+│   ├── JwtUtil.java                  # COMPAT — jangan hapus
+│   └── JwtAuthenticationFilter.java  # OncePerRequestFilter, Bearer → validate → ROLE_*
 ├── dto/
-│   ├── RegisterRequest.java     # name @NotBlank, email @Email, phone @Size15, password @NotBlank @Size6, nik @Pattern \d{16}, role String
-│   ├── LoginRequest.java        # email, password
-│   ├── GoogleLoginRequest.java  # idToken @NotBlank (ID Token dari frontend Google GIS)
-│   └── AuthResponse.java        # message, userId, name, email, role, token, expiresIn (detik)
-├── entity/                      # 11 files = 10 tabel prompt (Settings & AuditLog jadi 1 poin)
-│   ├── User.java                # users — @GeneratedValue UUID, email unique, nik unique 16, role ENUM CUSTOMER/ORGANIZER/ADMIN @Enumerated STRING
-│   ├── Auth.java                # auth — @ManyToOne User (user_id UNIQUE FK CASCADE), password BCrypt, authGoogle VARCHAR(20) (potong 20 char), aksesToken TEXT, expiredToken, status INACTIVE/ACTIVE
-│   ├── Organizer.java           # organizers — @ManyToOne User, nameOrganizer, npwpNumber, aktaPerusahaan, bankName/bankAccountNumber, verificationStatus UNVERIFIED
-│   ├── Event.java               # events — @ManyToOne Organizer, title/description/category/venueName/bannerUrl/facility/startDate/endDate/status DRAFT
-│   ├── TicketTier.java          # ticket_tiers — @ManyToOne Event, tierName/price(12,2)/totalQuota/availableQuota
-│   ├── Booking.java             # bookings — @ManyToOne User + TicketTier, quantity/status PENDING/expiresAt
-│   ├── Order.java               # orders — @ManyToOne Booking(UNIQUE)+Customer(User)+Event+TicketTier, quantity/totalAmount/adminFee/status/paymentMethod/transactionIdGateway/paidAt/expiredAt
-│   ├── TicketItem.java          # ticket_items — @ManyToOne Order+TicketTier, attendeeEmail/Name/Nik/checkInStatus UNREDEEMED/checkInAt
-│   ├── RefundRequest.java       # refund_requests — @ManyToOne Customer+Order, refundAmount/bank* /reason/adminNote/status PENDING/requestedAt/processedAt
-│   ├── Settings.java            # settings — BIGSERIAL PK, settings_key UNIQUE
-│   └── AuditLog.java            # audit_logs — actorId/actorName/action/detail/createdAt
+│   ├── ApiResponse.java              # Wrapper {msg, status, data} — semua controller pakai ini (200/201/400/401/403)
+│   ├── RegisterRequest.java          # name @NotBlank @Size100, email @Email unique, username @NotBlank @Size3-20 @Pattern ^[a-zA-Z0-9_]+$ unique, phone @Size15, password @NotBlank @Size6, nik @Pattern \d{16} unique, role String
+│   ├── LoginRequest.java             # email, username, identifier, password + getIdentifier() (contains "@" → email else username, fallback)
+│   ├── GoogleLoginRequest.java       # idToken @NotBlank
+│   ├── VerifyOtpRequest.java         # email @NotBlank @Email, otpCode @NotBlank
+│   ├── ResendOtpRequest.java         # email @NotBlank @Email
+│   ├── ResetPasswordRequest.java     # email @NotBlank @Email, code @JsonAlias token/otp, token, newPassword @JsonAlias password + getEffectiveCode()/getEffectiveNewPassword() trim
+│   └── AuthResponse.java             # message, userId, name, email, username, role, token, expiresIn (detik) — dibungkus ApiResponse.data
+├── entity/                           # 12 files = 12 tabel (password_reset_tokens dihapus, digabung ke auth)
+│   ├── User.java                     # users — UUID PK, email unique, username unique 20, nik unique 16, role ENUM CUSTOMER/ORGANIZER/ADMIN
+│   ├── Auth.java                     # auth — @ManyToOne User (user_id UNIQUE CASCADE), password BCrypt, authGoogle VARCHAR(20), aksesToken TEXT, expiredToken, status INACTIVE/ACTIVE, resetToken VARCHAR(255), resetExpiredAt
+│   ├── Otp.java                      # otp — @ManyToOne User, otpCode VARCHAR(10), expiredAt
+│   ├── Organizer.java                # organizers — @ManyToOne User, verificationStatus UNVERIFIED
+│   ├── Event.java                    # events — @ManyToOne Organizer, status DRAFT
+│   ├── TicketTier.java               # ticket_tiers — @ManyToOne Event, price NUMERIC(12,2)
+│   ├── Booking.java                  # bookings — @ManyToOne User + TicketTier, status PENDING
+│   ├── Order.java                    # orders — @ManyToOne Booking(UNIQUE)+Customer+Event+TicketTier
+│   ├── TicketItem.java               # ticket_items — @ManyToOne Order+TicketTier, checkInStatus UNREDEEMED
+│   ├── RefundRequest.java            # refund_requests — @ManyToOne Customer+Order, bank fields NOT NULL
+│   ├── Settings.java                 # settings — BIGSERIAL PK, settings_key UNIQUE
+│   └── AuditLog.java                 # audit_logs — actorId/actorName/action/detail/createdAt
 ├── repository/
-│   ├── UserRepository.java      # findByEmail, existsByEmail, existsByNik
-│   ├── AuthRepository.java      # findByUserUserId, findByAksesToken
-│   └── AuditLogRepository.java  # log only
+│   ├── UserRepository.java           # findByEmail, findByUsername, existsByEmail/Username/Nik
+│   ├── AuthRepository.java           # findByUserUserId, findByAksesToken
+│   ├── OtpRepository.java            # findByUserUserIdAndOtpCode, findByUserUserId, deleteByUserUserId
+│   └── AuditLogRepository.java       # log only
 └── service/
-    ├── AuthService.java         # register + login + loginWithGoogle(@Value google.client-id, RestTemplate tokeninfo, verify aud/exp/email_verified) + logout
-    └── AuditLogService.java     # log(actorId, actorName, action, detail)
+    ├── AuthService.java              # register + login + loginWithGoogle + verifyOtp + resendOtp + resetPassword (langsung di auth.resetToken) + logout
+    ├── AuditLogService.java          # log(actorId, actorName, action, detail)
+    └── EmailService.java             # sendOtpEmail + sendResetPasswordEmail (Mailtrap, @Value app.mail.*, gagal → log warn tidak throw)
 ```
-**DIHAPUS & JANGAN DIBUAT ULANG:** `RescheduleRequest.java` + `RescheduleRequestRepository` + service/controller `EventService/OrderService/TicketService/SettingsService/RefundService/OrganizerService/OrderScheduler` + controller `Event/Order/Payment/Settings/Ticket/Refund/Reschedule/Audit/Organizer` + DTO `CreateEvent/EventResponse/CreateOrder/OrderResponse` etc. — semua sengaja dihapus untuk Auth Only.
+
+**DIHAPUS & JANGAN DIBUAT ULANG:** `RescheduleRequest` + `PasswordResetToken`/`password_reset_tokens` (sudah digabung ke `auth` sesuai mentor) + semua service/controller DTO untuk Event/Order/Payment/Settings/Ticket/Refund/Reschedule/Organizer. Semua sengaja dihapus untuk Auth Only.
 
 ## Database Schema
-Migrasi: `src/main/resources/db/migration/V1__init_schema.sql` (`uuid-ossp`, 11 tabel, FK, index, default `ADMIN_FEE=5000`, `ORDER_EXPIRY_MINUTES=15`, `BOOKING_EXPIRY_MINUTES=10`).
+Migrasi: `src/main/resources/db/migration/V1__init_schema.sql` (`uuid-ossp`, 12 tabel, FK, index, default `ADMIN_FEE=5000`, `ORDER_EXPIRY_MINUTES=15`, `BOOKING_EXPIRY_MINUTES=10`).
 
-| Table | PK | FK |
-|---|---|---|
-| `users` | `user_id` UUID | — |
-| `auth` | `auth_id` UUID | `user_id` UNIQUE → users CASCADE |
-| `organizers` | `organizer_id` UUID | `user_id` UNIQUE → users |
-| `events` | `event_id` UUID | `organizer_id` → organizers RESTRICT |
-| `ticket_tiers` | `tier_id` UUID | `event_id` → events CASCADE |
-| `bookings` | `booking_id` UUID | `user_id`→users, `tier_id`→ticket_tiers |
-| `orders` | `order_id` UUID | `booking_id` UNIQUE, `customer_id`→users, `event_id`→events, `tier_id`→tiers |
-| `ticket_items` | `ticket_item_id` UUID | `order_id`→orders CASCADE, `tier_id`→tiers |
-| `refund_requests` | `refund_id` UUID | `customer_id`→users, `order_id`→orders |
-| `settings` | `settings_id` BIGSERIAL | — |
-| `audit_logs` | `audit_id` UUID | — |
+| Table | PK | FK | Catatan |
+|---|---|---|---|
+| `users` | `user_id` UUID | — | `username UNIQUE`, `email UNIQUE`, `nik UNIQUE` |
+| `auth` | `auth_id` UUID | `user_id` UNIQUE → users CASCADE | `password` hash, `auth_google` 20, `akses_token` TEXT, `reset_token` 255, `reset_expired_at` 15 menit |
+| `otp` | `otp_id` UUID | `user_id` → users CASCADE | `otp_code` 10, `expired_at` 5 menit |
+| `organizers` | `organizer_id` UUID | `user_id` UNIQUE → users | `verification_status UNVERIFIED` |
+| `events` | `event_id` UUID | `organizer_id` → organizers RESTRICT | `status DRAFT` |
+| `ticket_tiers` | `tier_id` UUID | `event_id` → events CASCADE | `price NUMERIC(12,2)` |
+| `bookings` | `booking_id` UUID | `user_id`→users, `tier_id`→tiers | `status PENDING` |
+| `orders` | `order_id` UUID | `booking_id` UNIQUE, `customer_id`→users, `event_id`→events, `tier_id`→tiers | |
+| `ticket_items` | `ticket_item_id` UUID | `order_id`→orders CASCADE, `tier_id`→tiers | `UNREDEEMED` |
+| `refund_requests` | `refund_id` UUID | `customer_id`→users, `order_id`→orders | |
+| `settings` | `settings_id` BIGSERIAL | — | `settings_key UNIQUE` |
+| `audit_logs` | `audit_id` UUID | — | `actorId/action/detail` |
 
-Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR default.
+Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR default. `password_reset_tokens` **dihapus** (digabung ke `auth`).
 
 ## API Endpoints
 
 ### ✅ AKTIF — Auth
 | Method | Endpoint | Auth | Flow |
 |---|---|---|---|
-| POST | `/api/v1/auth/register` | Public | validasi → cek duplikat email/nik → `User.Role.valueOf` fallback CUSTOMER → save `User` → `BCrypt` → save `Auth(INACTIVE)` → audit REGISTER → return tanpa token |
-| POST | `/api/v1/auth/login` | Public | find `User` → find `Auth` → `matches` → `jwtTokenProvider.generateToken(userId,email,role.name)` (86400000ms) → update `aksesToken/expiredToken/status ACTIVE` → audit LOGIN → return `token + expiresIn` |
-| POST | `/api/v1/auth/google` | Public | terima `idToken` frontend GIS → `GET https://oauth2.googleapis.com/tokeninfo?id_token=` → cek `aud==google.client-id` (jika diisi), `exp`, `email_verified` → find/create `User` by email → find/create `Auth` (password dummy BCrypt, `authGoogle` potong 20 char) → generate JWT sama → audit REGISTER_GOOGLE/LOGIN_GOOGLE |
+| POST | `/api/v1/auth/register` | Public | cek duplikat email/username/nik → `User.Role.valueOf` fallback CUSTOMER → save `User` → BCrypt → save `Auth(INACTIVE)` → generate OTP 6-digit → save `otp` → `sendOtpEmail` → audit REGISTER → return tanpa token |
+| POST | `/api/v1/auth/verify-otp` | Public | find `User` by email → cek `Otp` by userId+otpCode → cek expired → set `Auth.status=ACTIVE` → delete OTP |
+| POST | `/api/v1/auth/resend-otp` | Public | find `User` → delete OTP lama → generate baru → save → kirim email |
+| POST | `/api/v1/auth/login` | Public | `getIdentifier()` (contains "@" → email else username, fallback) → find `User` → `findByUserUserId` → `matches` → cek `ACTIVE` else `Akun belum aktif!` → `generateToken(userId,email,role)` 86400000ms → update `aksesToken/expiredToken/ACTIVE` → return `token+expiresIn` |
+| POST | `/api/v1/auth/google` | Public | `GET tokeninfo?id_token=` → cek `aud==google.client-id`, `exp`, `email_verified` → find/create `User` (username auto) → find/create `Auth` dummy BCrypt `authGoogle[0:20]` → generate JWT |
+| POST | `/api/v1/auth/reset-password` | Public | **Single endpoint 2 tahap (langsung di auth)**: tanpa `code`/`token` → generate 6-digit → `auth.reset_token/reset_expired_at` 15min → email. Dengan `code`/`token`+`newPassword` → `getEffectiveCode()` trim + cek `auth.resetToken==code && not expired` → update BCrypt → clear `resetToken` |
 
-`POST /api/auth/**` juga permit (legacy).
+`GET /` dan `GET /error` permit, `POST /api/auth/**` legacy permit. Lihat `SecurityConfig.java:37`.
 
-**JWT Middleware** `JwtAuthenticationFilter.java:23`: header `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_<role>` → `anyRequest.authenticated()`.
+**JWT Middleware** `JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`.
 
-**Google Flow (backend):** ID Token didapat di **frontend** via `https://accounts.google.com/gsi/client` (`data-client_id=google.client-id`), lalu `POST /api/v1/auth/google {idToken}`. Backend hanya verifikasi, tidak OAuth redirect.
+**Google Flow:** ID Token dari `https://accounts.google.com/gsi/client` (`data-client_id=google.client-id`) → `POST /google {idToken}`. Backend hanya verifikasi, tidak redirect.
 
 ### ⏳ SCHEMA-ONLY (jangan implement kecuali diminta)
 `POST /api/events`, `GET /api/events`, `POST /api/orders`, `POST /api/payments/pay/{orderId}`, `POST /api/tickets/scan/{ticketItemId}`, `GET/PUT /api/settings`, `POST /api/refunds` — entity+table ready, 403 jika dipanggil.
 
 ## Key Business Logic (Auth Only)
 - `CorsConfig.java:10` global `*` untuk ngrok (maxAge 3600, allowCredentials).
-- Password tidak pernah di `users`, hanya di `auth.password`. Untuk Google, password dummy UUID BCrypt (kolom NOT NULL).
-- Token disimpan di DB untuk invalidasi logout (`AuthService.logout` null-kan token, belum expose endpoint).
-- `authGoogle` `VARCHAR(20)` → potong `sub.substring(0,20)` (Google sub ~21 char).
+- Password hanya di `auth.password`, tidak di `users`. Untuk Google, dummy UUID BCrypt (kolom NOT NULL).
+- Token JWT disimpan di DB `auth.aksesToken` untuk invalidasi logout (`AuthService.logout` null-kan token, belum expose endpoint).
+- `authGoogle` `VARCHAR(20)` → `sub.substring(0,20)`.
+- `EmailService.java` Mailtrap sandbox — gagal → `log.warn` tidak throw, OTP/token tetap bisa dilihat di log.
+- Reset Password **digabung ke `auth`**: `auth.reset_token` + `auth.reset_expired_at` (mentor request, tidak lagi tabel terpisah). `ResetPasswordRequest` trim code & alias `token`/`otp`.
+- Register flow: `register()` generates 6-digit OTP → `otp` exp 5min → email. `verifyOtp()` → `ACTIVE`. `resendOtp()` invalidates old → new.
+- `@EnableScheduling` aktif di `EventdayApplication.java` tapi belum ada job.
+- Logging Spring Boot aktif `logging.level.com.example.eventday=DEBUG` → `logs/eventday.log`.
 
-## Known Issues / TODO untuk AI
-1. `jwt.secret` hardcoded di properties — prod pindah ke env/Secret Manager.
+## Known Issues / TODO
+1. `jwt.secret` hardcoded — prod pindah env/Secret Manager.
 2. No refresh token, hanya access 24 jam.
-3. `@EnableScheduling` masih ada tapi tidak ada job (aman).
+3. Java upgrade plan 21→25 di `.github/modernize/...` — **JANGAN JALANKAN** kecuali diminta.
 4. `Settings.java` pakai `IDENTITY` BIGSERIAL bukan UUID (sesuai DDL).
-5. Jangan buat ulang `reschedule_requests`.
-6. Google `aud` tidak divalidasi jika `google.client-id` kosong — isi untuk produksi.
+5. Jangan buat ulang `reschedule_requests` & `password_reset_tokens` (sudah digabung).
+6. `google.client-id` sudah **diisi** — validasi aud aktif.
+7. `AuthService.logout(UUID)` ada tapi belum expose endpoint REST.
+8. `register()` OTP di `otp` table 5 menit, reset code di `auth` 15 menit.
 
 ## Code Conventions
 - Package `com.example.eventday`, entity singular, table plural snake_case
-- PK `GenerationType.UUID` kecuali `settings_id`
+- PK `GenerationType.UUID` kecuali `settings_id` (IDENTITY BIGSERIAL)
 - Lombok `@Data @Builder @NoArgsConstructor @AllArgsConstructor`
-- DTO validasi `jakarta.validation`, `@Service @Transactional`, `@RestController`
+- DTO validasi `jakarta.validation` + `Jackson @JsonAlias` untuk compat
+- `@Service @Transactional`, `@RestController`
 - `createdAt = LocalDateTime.now()` via `@Builder.Default`
+- `@Value` untuk config injection
+- `RestTemplate` untuk Google verification
+- `SecureRandom` untuk OTP/code 6-digit
 
 ## Build & Run
 ```bash
-./mvnw clean compile -DskipTests # BUILD SUCCESS 28 files (2026-09-02, +Google)
-./mvnw spring-boot:run
-curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","password":"123456","role":"CUSTOMER"}'
+./mvnw clean compile -DskipTests   # BUILD SUCCESS
+./mvnw spring-boot:run             # port 8081
+./mvnw test                        # 22 tests (AuthFlowIntegrationTest 21 + contextLoads) PASS
+
+curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","username":"john123","password":"123456","role":"CUSTOMER"}'
+curl -X POST localhost:8081/api/v1/auth/verify-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com","otpCode":"123456"}'
 curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"username":"john123","password":"123456"}'
 curl -X POST localhost:8081/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
-curl -H "Authorization: Bearer <token>" localhost:8081/any-protected # 403 tanpa token
+curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'  # minta kode (simpan di auth.reset_token)
+curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456","newPassword":"newPass123"}'
+curl -H "Authorization: Bearer <token>" localhost:8081/any-protected   # 403 tanpa token
 ```
+
+## Reference Files
+- `API.md` — full API documentation (frontend handoff, lengkap curl & response)
+- `HELP.md` — Spring Boot help
+- `.vscode/settings.json` — IDE config
+
+```
+

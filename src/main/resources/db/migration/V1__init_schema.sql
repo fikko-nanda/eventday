@@ -11,6 +11,7 @@ CREATE TABLE users (
     user_id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            VARCHAR(100) NOT NULL,
     email           VARCHAR(150) NOT NULL UNIQUE,
+    username        VARCHAR(20) UNIQUE,
     phone           VARCHAR(15),
     nik             VARCHAR(16) UNIQUE,
     role            VARCHAR(20) NOT NULL DEFAULT 'CUSTOMER',
@@ -21,10 +22,11 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_users_nik ON users(nik);
 
 -- ============================================================
--- 2. AUTH TABLE (pisah dari users untuk keamanan)
+-- 2. AUTH TABLE (pisah dari users untuk keamanan + reset password digabung)
 -- ============================================================
 CREATE TABLE auth (
     auth_id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -34,6 +36,8 @@ CREATE TABLE auth (
     akses_token     TEXT,
     expired_token   TIMESTAMP,
     status          VARCHAR(20) NOT NULL DEFAULT 'INACTIVE',
+    reset_token     VARCHAR(255),
+    reset_expired_at TIMESTAMP,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     create_by       UUID,
     updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -43,6 +47,7 @@ CREATE TABLE auth (
 
 CREATE INDEX idx_auth_user_id ON auth(user_id);
 CREATE INDEX idx_auth_akses_token ON auth(akses_token) WHERE akses_token IS NOT NULL;
+CREATE INDEX idx_auth_reset_token ON auth(reset_token) WHERE reset_token IS NOT NULL;
 
 -- ============================================================
 -- 3. ORGANIZERS TABLE
@@ -219,7 +224,22 @@ CREATE INDEX idx_refund_order ON refund_requests(order_id);
 CREATE INDEX idx_refund_status ON refund_requests(status);
 
 -- ============================================================
--- 10. SETTINGS TABLE (konfigurasi sistem)
+-- 10. OTP TABLE (verifikasi registrasi)
+-- ============================================================
+CREATE TABLE otp (
+    otp_id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL,
+    otp_code        VARCHAR(10) NOT NULL,
+    expired_at      TIMESTAMP NOT NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_otp_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_otp_user ON otp(user_id);
+CREATE INDEX idx_otp_code ON otp(otp_code);
+
+-- ============================================================
+-- 12. SETTINGS TABLE (konfigurasi sistem)
 -- ============================================================
 CREATE TABLE settings (
     settings_id   BIGSERIAL PRIMARY KEY,
@@ -235,7 +255,7 @@ CREATE TABLE settings (
 CREATE INDEX idx_settings_key ON settings(settings_key);
 
 -- ============================================================
--- 11. AUDIT_LOGS TABLE (log aktivitas)
+-- 13. AUDIT_LOGS TABLE (log aktivitas) — password_reset_tokens dihapus, digabung ke auth.reset_token
 -- ============================================================
 CREATE TABLE audit_logs (
     audit_id     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
