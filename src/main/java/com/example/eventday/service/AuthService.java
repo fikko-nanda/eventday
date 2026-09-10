@@ -1,4 +1,4 @@
-﻿package com.example.eventday.service;
+package com.example.eventday.service;
 
 import com.example.eventday.dto.AuthResponse;
 import com.example.eventday.dto.GoogleLoginRequest;

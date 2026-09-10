@@ -50,6 +50,10 @@ public class Event {
     @Builder.Default
     private String status = "DRAFT";
 
+    @Column(name = "is_featured")
+    @Builder.Default
+    private Boolean isFeatured = false;
+
     @Column(name = "created_at", updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

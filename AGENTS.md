@@ -3,7 +3,7 @@
 ## Project Overview
 Spring Boot 3.2.4 (Java 21, target Java 25) REST API, PostgreSQL, Maven, port 8082. Eventday ticketing: user/organizer/event/ticket/booking/order/payment/refund management.
 
-> **Status 2026-09-09:** Tahap 1 (JPA Entities 12 tabel - reset password digabung ke auth) & Tahap 2 (Auth Only + Google Login + OTP + Reset Password) **SELESAI**. Test `AuthFlowIntegrationTest` 21 cases PASS — `API.md` & `AGENTS.md` sinkron dengan `application.properties` (port 8082).
+> **Status 2026-09-10:** Tahap 1 (JPA Entities 12 tabel) & Tahap 2 (Auth Only + Google Login + OTP + Reset Password) **SELESAI**. Tahap 3 (Customer Event Catalog) **SELESAI** — `EventController`, `EventService`, DTO + Repository aktif. `API.md` & `AGENTS.md` sinkron dengan `application.properties` (port 8082).
 
 > **Status 2026-09-04:** `.github/modernize/java-upgrade/20260904031947/` — active plan to upgrade Java 21 → 25. Do NOT execute unless explicitly asked.
 
@@ -80,6 +80,7 @@ src/main/java/com/example/eventday/
 ├── EventdayApplication.java          # @SpringBootApplication @EnableScheduling
 ├── controller/
 │   ├── AuthController.java           # POST /api/v1/auth/register, login, google, verify-otp, resend-otp, reset-password
+│   ├── EventController.java          # GET /api/v1/events, /events/featured, /events/{id}
 │   └── HomeController.java           # GET "/" → "Eventday API Server is Running!"
 ├── config/
 │   ├── CorsConfig.java               # GLOBAL CORS * (ngrok), allowCredentials true, maxAge 3600
@@ -98,14 +99,16 @@ src/main/java/com/example/eventday/
 │   ├── VerifyOtpRequest.java         # email @NotBlank @Email, otpCode @NotBlank
 │   ├── ResendOtpRequest.java         # email @NotBlank @Email
 │   ├── ResetPasswordRequest.java     # email @NotBlank @Email, code @JsonAlias token/otp, token, newPassword @JsonAlias password + getEffectiveCode()/getEffectiveNewPassword() trim
-│   └── AuthResponse.java             # message, userId, name, email, username, role, token @JsonIgnore (hidden dari JSON, kirim via Set-Cookie access_token HttpOnly), expiresIn — dibungkus ApiResponse.data
+│   ├── AuthResponse.java             # message, userId, name, email, username, role, token @JsonIgnore (hidden dari JSON, kirim via Set-Cookie access_token HttpOnly), expiresIn — dibungkus ApiResponse.data
+│   ├── EventCatalogResponse.java     # content (List<EventItem>), page, size, totalElements, totalPages — inner class: id, title, category, categoryLabel, date, dateDisplay, time, location, price, priceDisplay, image, status, isFeatured
+│   └── EventDetailResponse.java      # id, title, category, categoryLabel, date, dateDisplay, location, description, image, status, statusLabel, facilities (List<String>), lineup (List<LineupItem>), tickets (List<TicketItem>)
 ├── entity/                           # 12 files = 12 tabel (password_reset_tokens dihapus, digabung ke auth)
 │   ├── User.java                     # users — UUID PK, email unique, username unique 20, nik unique 16, role ENUM CUSTOMER/ORGANIZER/ADMIN
 │   ├── Auth.java                     # auth — @ManyToOne User (user_id UNIQUE CASCADE), password BCrypt, authGoogle VARCHAR(20), aksesToken TEXT, expiredToken, status INACTIVE/ACTIVE, resetToken VARCHAR(255), resetExpiredAt
 │   ├── Otp.java                      # otp — @ManyToOne User, otpCode VARCHAR(10), expiredAt
 │   ├── Organizer.java                # organizers — @ManyToOne User, verificationStatus UNVERIFIED
-│   ├── Event.java                    # events — @ManyToOne Organizer, status DRAFT
-│   ├── TicketTier.java               # ticket_tiers — @ManyToOne Event, price NUMERIC(12,2)
+│   ├── Event.java                    # events — @ManyToOne Organizer, status DRAFT, isFeatured BOOLEAN
+│   ├── TicketTier.java               # ticket_tiers — @ManyToOne Event, price NUMERIC(12,2), totalQuota, availableQuota
 │   ├── Booking.java                  # bookings — @ManyToOne User + TicketTier, status PENDING
 │   ├── Order.java                    # orders — @ManyToOne Booking(UNIQUE)+Customer+Event+TicketTier
 │   ├── TicketItem.java               # ticket_items — @ManyToOne Order+TicketTier, checkInStatus UNREDEEMED
@@ -116,14 +119,17 @@ src/main/java/com/example/eventday/
 │   ├── UserRepository.java           # findByEmail, findByUsername, existsByEmail/Username/Nik
 │   ├── AuthRepository.java           # findByUserUserId, findByAksesToken
 │   ├── OtpRepository.java            # findByUserUserIdAndOtpCode, findByUserUserId, deleteByUserUserId
+│   ├── EventRepository.java          # findPublishedEvents(category,search,location,pageable), findFeaturedEvents(pageable), findPublishedEventById(id)
+│   ├── TicketTierRepository.java     # findByEvent(event)
 │   └── AuditLogRepository.java       # log only
 └── service/
     ├── AuthService.java              # register + login + loginWithGoogle + verifyOtp + resendOtp + resetPassword (langsung di auth.resetToken) + logout
+    ├── EventService.java             # getEvents(filter+pagination), getFeaturedEvents(3 hero), getEventDetail(UUID) + format helpers (categoryLabel, priceDisplay, dateDisplay, facilities parsing)
     ├── AuditLogService.java          # log(actorId, actorName, action, detail)
     └── EmailService.java             # sendOtpEmail + sendResetPasswordEmail (Mailtrap, @Value app.mail.*, gagal → log warn tidak throw)
 ```
 
-**DIHAPUS & JANGAN DIBUAT ULANG:** `RescheduleRequest` + `PasswordResetToken`/`password_reset_tokens` (sudah digabung ke `auth` sesuai mentor) + semua service/controller DTO untuk Event/Order/Payment/Settings/Ticket/Refund/Reschedule/Organizer. Semua sengaja dihapus untuk Auth Only.
+**DIHAPUS & JANGAN DIBUAT ULANG:** `RescheduleRequest` + `PasswordResetToken`/`password_reset_tokens` (sudah digabung ke `auth` sesuai mentor) + semua service/controller DTO untuk Order/Payment/Settings/Ticket/Refund/Reschedule/Organizer.
 
 ## Database Schema
 Migrasi: `src/main/resources/db/migration/V1__init_schema.sql` (`uuid-ossp`, 12 tabel, FK, index, default `ADMIN_FEE=5000`, `ORDER_EXPIRY_MINUTES=15`, `BOOKING_EXPIRY_MINUTES=10`).
@@ -157,6 +163,15 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 | POST | `/api/v1/auth/google` | Public | `GET tokeninfo?id_token=` → cek `aud==google.client-id`, `exp`, `email_verified` → find/create `User` (username auto) → find/create `Auth` dummy BCrypt `authGoogle[0:20]` → generate JWT → `Set-Cookie access_token HttpOnly` |
 | POST | `/api/v1/auth/reset-password` | Public | **Single endpoint 2 tahap (langsung di auth)**: tanpa `code`/`token` → generate 6-digit → `auth.reset_token/reset_expired_at` 15min → email. Dengan `code`/`token`+`newPassword` → `getEffectiveCode()` trim + cek `auth.resetToken==code && not expired` → update BCrypt → clear `resetToken` |
 
+### ✅ AKTIF — Customer Event Catalog
+| Method | Endpoint | Auth | Flow |
+|---|---|---|---|
+| GET | `/api/v1/events` | Bearer | `findPublishedEvents(category,search,location,pageable)` → map ke `EventCatalogResponse` (categoryLabel, priceDisplay, dateDisplay) → pagination `{content,page,size,totalElements,totalPages}` |
+| GET | `/api/v1/events/featured` | Bearer | `findFeaturedEvents()` → max 3 event `isFeatured=true` → same shape `EventCatalogResponse` |
+| GET | `/api/v1/events/{id}` | Bearer | `findPublishedEventById(id)` → map `EventDetailResponse` + `TicketTier` list + parse facilities TEXT → `List<String>` → lineup placeholder |
+| POST | `/api/v1/auth/google` | Public | `GET tokeninfo?id_token=` → cek `aud==google.client-id`, `exp`, `email_verified` → find/create `User` (username auto) → find/create `Auth` dummy BCrypt `authGoogle[0:20]` → generate JWT → `Set-Cookie access_token HttpOnly` |
+| POST | `/api/v1/auth/reset-password` | Public | **Single endpoint 2 tahap (langsung di auth)**: tanpa `code`/`token` → generate 6-digit → `auth.reset_token/reset_expired_at` 15min → email. Dengan `code`/`token`+`newPassword` → `getEffectiveCode()` trim + cek `auth.resetToken==code && not expired` → update BCrypt → clear `resetToken` |
+
 `GET /` dan `GET /error` permit, `POST /api/auth/**` legacy permit. Lihat `SecurityConfig.java:53`.
 
 **JWT Middleware** `JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` **atau** `Cookie: access_token` (`resolveToken()`) → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`. `AuthResponse.token` `@JsonIgnore` — token hanya via `Set-Cookie` HttpOnly, tidak di Network → Response.
@@ -164,9 +179,9 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 **Google Flow:** ID Token dari `https://accounts.google.com/gsi/client` (`data-client_id=google.client-id`) → `POST /google {idToken}`. Backend hanya verifikasi, tidak redirect.
 
 ### ⏳ SCHEMA-ONLY (jangan implement kecuali diminta)
-`POST /api/events`, `GET /api/events`, `POST /api/orders`, `POST /api/payments/pay/{orderId}`, `POST /api/tickets/scan/{ticketItemId}`, `GET/PUT /api/settings`, `POST /api/refunds` — entity+table ready, 403 jika dipanggil.
+`POST /api/v1/orders`, `POST /api/v1/payments/pay/{orderId}`, `POST /api/tickets/scan/{ticketItemId}`, `GET/PUT /api/settings`, `POST /api/refunds` — entity+table ready, 403 jika dipanggil。
 
-## Key Business Logic (Auth Only)
+## Key Business Logic (Auth + Event Catalog)
 - `CorsConfig.java:10` global `*` untuk ngrok (maxAge 3600, allowCredentials).
 - Password hanya di `auth.password`, tidak di `users`. Untuk Google, dummy UUID BCrypt (kolom NOT NULL).
 - Token JWT disimpan di DB `auth.aksesToken` untuk invalidasi logout (`AuthService.logout` null-kan token, belum expose endpoint).
@@ -212,6 +227,9 @@ curl -X POST localhost:8082/api/v1/auth/google -H "Content-Type: application/jso
 curl -X POST localhost:8082/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'  # minta kode (simpan di auth.reset_token)
 curl -X POST localhost:8082/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456","newPassword":"newPass123"}'
 curl -H "Authorization: Bearer <token>" localhost:8082/any-protected   # 401 tanpa token, 403 jika endpoint schema-only
+curl -H "Authorization: Bearer <token>" "localhost:8082/api/v1/events"  # list events
+curl -H "Authorization: Bearer <token>" "localhost:8082/api/v1/events/featured"  # hero slider
+curl -H "Authorization: Bearer <token>" "localhost:8082/api/v1/events/{id}"  # detail event
 ```
 
 ## Reference Files
