@@ -2,7 +2,8 @@
 
 Base URL: `http://localhost:8082`
 
-> **Status:** Hanya modul **Auth** yang aktif (+ Google Login + OTP). Modul lain masih **SCHEMA ONLY**. Backend `port 8082`, `jwt 24 jam`, `CORS *` untuk ngrok.
+> **Status 2026-09-09:** Hanya modul **Auth** yang aktif (+ Google Login + OTP). Modul lain masih **SCHEMA ONLY**. Backend `port 8082` sinkron `application.properties`, `jwt 24 jam`, `CORS *` untuk ngrok.
+> **Last Updated:** 2026-09-09 — sinkron dengan `AGENTS.md` & `application.properties` (port 8082).
 > **Response Standard:** Semua API sekarang pakai format ** `{msg, status, data}` ** — `status` = HTTP code, `msg` = pesan, `data` = payload / `null`.
 
 ```json
@@ -86,7 +87,7 @@ Flow `AuthService.java:61`: cek duplikat `email/username/nik` → `save User` �
 ```
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/register \
+curl -X POST localhost:8082/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name":"John","email":"john@mail.com","username":"john123","password":"123456"}'
 # Network tab: Status 201, Response {msg, status:201, data:{...}}
@@ -116,7 +117,7 @@ curl -X POST localhost:8081/api/v1/auth/register \
 ```
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/verify-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com","otpCode":"123456"}'
+curl -X POST localhost:8082/api/v1/auth/verify-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com","otpCode":"123456"}'
 ```
 
 ---
@@ -136,7 +137,7 @@ curl -X POST localhost:8081/api/v1/auth/verify-otp -H "Content-Type: application
 ```
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/resend-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'
+curl -X POST localhost:8082/api/v1/auth/resend-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'
 ```
 
 ---
@@ -156,7 +157,7 @@ Support **email ATAU username ATAU identifier** + password. Backend `LoginReques
 
 Flow `AuthService.java:124`: resolve identifier → `findByUserUserId` → `matches` → cek `status ACTIVE` else `Akun belum aktif!` → `jwtTokenProvider.generateToken(userId,email,role)` `86400000ms` → `update aksesToken/expiredToken/ACTIVE` → return.
 
-### Response `200`
+### Response `200` — **Token TIDAK muncul di JSON (HttpOnly Cookie)**
 ```json
 {
   "msg":"Login berhasil!",
@@ -168,12 +169,11 @@ Flow `AuthService.java:124`: resolve identifier → `findByUserUserId` → `matc
     "email":"john@example.com",
     "username":"johndoe_99",
     "role":"CUSTOMER",
-    "token":"eyJhbGciOiJIUzI1NiJ9...",
     "expiresIn":86400
   }
 }
 ```
-`data.expiresIn` detik (`86400` = 24 jam). Simpan `data.token` → header `Authorization: Bearer <token>`.
+`Set-Cookie: access_token=eyJhbG...; Path=/; HttpOnly; Max-Age=86400; SameSite=Lax` — token **tidak ada di `data.token` (hidden via `@JsonIgnore`)**, browser simpan otomatis. `data.expiresIn` detik (`86400` = 24 jam). Request selanjutnya kirim otomatis via `Cookie: access_token` atau manual `Authorization: Bearer <token>` (filter support keduanya `JwtAuthenticationFilter.java:32`).
 
 ### Error `400`
 ```json
@@ -183,9 +183,9 @@ Flow `AuthService.java:124`: resolve identifier → `findByUserUserId` → `matc
 ```
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8082/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
 # ambil token: data.token
-TOKEN=$(curl -s -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .data.token)
+TOKEN=$(curl -s -X POST localhost:8082/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .data.token)
 ```
 
 ---
@@ -206,15 +206,16 @@ Flow `AuthService.java:190`:
 {"idToken":"eyJhbGciOiJSUzI1NiIs...Google ID Token..."}
 ```
 
-### Response `200` / `201`
+### Response `200` / `201` — **Token via HttpOnly Cookie**
 ```json
-{"msg":"Login via Google berhasil!","status":200,"data":{"message":"Login via Google berhasil!","userId":"...","name":"...","email":"...","username":"...","role":"CUSTOMER","token":"eyJ...","expiresIn":86400}}
+{"msg":"Login via Google berhasil!","status":200,"data":{"message":"Login via Google berhasil!","userId":"...","name":"...","email":"...","username":"...","role":"CUSTOMER","expiresIn":86400}}
 {"msg":"Registrasi via Google berhasil!","status":201,"data":{...}}
 ```
+`Set-Cookie: access_token=...; HttpOnly` — `data.token` **tidak ada di Network → Response** (hidden).
 Error `400` `{"msg":"Token Google tidak valid: ...","status":400,"data":null}`
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
+curl -X POST localhost:8082/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
 ```
 
 **Frontend GIS:** `https://accounts.google.com/gsi/client` + `data-client_id=google.client-id` → `res.credential` → `POST /google` → `data.token`.
@@ -241,7 +242,7 @@ Response `200`:
 Generate 6-digit `app.reset-password.code-length=6`, simpan `auth.reset_token` + `auth.reset_expired_at` exp `15 menit` (digabung ke `auth` sesuai mentor), kirim via `EmailService`.
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'
+curl -X POST localhost:8082/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'
 ```
 
 ### Tahap 2 - Reset Password
@@ -260,7 +261,7 @@ Error `400`:
 ```
 
 ```bash
-curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456","newPassword":"newPass123"}'
+curl -X POST localhost:8082/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456","newPassword":"newPass123"}'
 ```
 
 ---
@@ -281,10 +282,10 @@ Semua selain `/api/v1/auth/**` butuh JWT. `SecurityConfig.java:31` `STATELESS`.
 ```
 
 ```bash
-TOKEN=$(curl -s -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .data.token)
-curl localhost:8081/api/events -H "Authorization: Bearer $TOKEN"  # 200 jika events aktif, 403 jika schema-only
-curl localhost:8081/api/events  # -> 401 {msg, status:401}
-curl localhost:8081/ # -> 200 {msg, status:200, data:"OK"}
+TOKEN=$(curl -s -X POST localhost:8082/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}' | jq -r .data.token)
+curl localhost:8082/api/events -H "Authorization: Bearer $TOKEN"  # 200 jika events aktif, 403 jika schema-only
+curl localhost:8082/api/events  # -> 401 {msg, status:401}
+curl localhost:8082/ # -> 200 {msg, status:200, data:"OK"}
 ```
 
 Config `application.properties`:
@@ -349,28 +350,34 @@ DB: `users --1:1-- auth (hash+googleId+token+resetToken) --1:N-- otp` (`password
 
 ---
 
-## Notes Frontend (copy-paste ready dengan `msg/status/data`)
+## Notes Frontend (copy-paste ready dengan `msg/status/data` + HttpOnly Cookie)
 
 ```js
-// helper fetch standar
-async function api(path, body, token){
-  const res = await fetch(`http://localhost:8081${path}`, {
-    method:'POST', headers:{'Content-Type':'application/json', ...(token&&{Authorization:`Bearer ${token}`})},
+// helper fetch standar — token TIDAK di localStorage, pakai HttpOnly Cookie
+async function api(path, body){
+  const res = await fetch(`http://localhost:8082${path}`, {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'ngrok-skip-browser-warning': 'true' // wajib jika pakai ngrok-free
+    },
+    credentials: 'include', // WAJIB agar Cookie access_token terkirim otomatis
     body: JSON.stringify(body)
   });
-  const json = await res.json(); // {msg, status, data}
-  if(!res.ok) throw new Error(json.msg); // tampilkan json.msg di toast
-  return json; // pakai json.data
+  const json = await res.json(); // {msg, status, data} — data.token TIDAK ADA
+  if(!res.ok) throw new Error(json.msg);
+  return json;
 }
 
-// contoh
-const reg = await api('/api/v1/auth/register', {name,email,username,password}); // reg.status 201
+// contoh — tidak perlu simpan token manual
+const reg = await api('/api/v1/auth/register', {name,email,username,password}); // 201
 const v = await api('/api/v1/auth/verify-otp', {email, otpCode});
-const login = await api('/api/v1/auth/login', {identifier: email, password}); // login.data.token
-localStorage.setItem('token', login.data.token);
+const login = await api('/api/v1/auth/login', {identifier: email, password}); // login.data.expiresIn saja
+// Cookie access_token sudah tersimpan HttpOnly otomatis, request selanjutnya auto terkirim
+// Jika butuh Bearer manual (postman), ambil dari Set-Cookie header di Network → Headers
 ```
 
-1. Base `http://localhost:8081`, `Content-Type: application/json` selalu.
+1. Base `http://localhost:8082`, `Content-Type: application/json` selalu.
 2. Cek `json.status` (bukan `res.status` saja) & `json.msg` untuk notifikasi.
 3. Register `201` → langsung ke form OTP.
 4. Login `200` → `data.token` + `data.expiresIn`.

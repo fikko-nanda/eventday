@@ -1,4 +1,4 @@
-package com.example.eventday.service;
+﻿package com.example.eventday.service;
 
 import com.example.eventday.dto.AuthResponse;
 import com.example.eventday.dto.GoogleLoginRequest;
@@ -27,6 +27,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class AuthService {
 
     private final UserRepository userRepository;

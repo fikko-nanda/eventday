@@ -1,9 +1,9 @@
 # AGENTS.md - Eventday Ticketing Backend
 
 ## Project Overview
-Spring Boot 3.2.4 (Java 21, target Java 25) REST API, PostgreSQL, Maven, port 8081. Eventday ticketing: user/organizer/event/ticket/booking/order/payment/refund management.
+Spring Boot 3.2.4 (Java 21, target Java 25) REST API, PostgreSQL, Maven, port 8082. Eventday ticketing: user/organizer/event/ticket/booking/order/payment/refund management.
 
-> **Status 2026-09-07:** Tahap 1 (JPA Entities 12 tabel - reset password digabung ke auth) & Tahap 2 (Auth Only + Google Login + OTP + Reset Password) **SELESAI**. Test `AuthFlowIntegrationTest` 21 cases PASS.
+> **Status 2026-09-09:** Tahap 1 (JPA Entities 12 tabel - reset password digabung ke auth) & Tahap 2 (Auth Only + Google Login + OTP + Reset Password) **SELESAI**. Test `AuthFlowIntegrationTest` 21 cases PASS — `API.md` & `AGENTS.md` sinkron dengan `application.properties` (port 8082).
 
 > **Status 2026-09-04:** `.github/modernize/java-upgrade/20260904031947/` — active plan to upgrade Java 21 → 25. Do NOT execute unless explicitly asked.
 
@@ -32,12 +32,14 @@ AI harus: jangan buat endpoint Event/Order/etc kecuali diminta; jangan buat ulan
 
 `application.properties` key values:
 ```properties
-server.port=8081
+server.port=8082
 spring.datasource.url=jdbc:postgresql://localhost:5432/db_eventday
 spring.datasource.username=postgres
 spring.datasource.password=fikko04
+spring.datasource.driver-class-name=org.postgresql.Driver
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
 jwt.secret=eventday-super-secret-key-min-32-chars-change-in-production-123456
 jwt.expiration-ms=86400000
 google.client-id=875040780549-1jq8bicaq1ne1ltjt7bfjcfjo82e5dj0.apps.googleusercontent.com  # ISI, bukan kosong!
@@ -60,8 +62,15 @@ app.reset-password.frontend-url=http://localhost:3000
 # Logging
 logging.level.root=INFO
 logging.level.com.example.eventday=DEBUG
+logging.level.com.example.eventday.config.ApiLoggingFilter=INFO
+logging.level.com.example.eventday.service.EmailService=DEBUG
+logging.level.org.springframework.web=INFO
 logging.level.org.springframework.security=DEBUG
 logging.level.org.hibernate.SQL=DEBUG
+logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+logging.level.org.springframework.mail=DEBUG
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} - %msg%n
+logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
 logging.file.name=logs/eventday.log
 ```
 
@@ -89,7 +98,7 @@ src/main/java/com/example/eventday/
 │   ├── VerifyOtpRequest.java         # email @NotBlank @Email, otpCode @NotBlank
 │   ├── ResendOtpRequest.java         # email @NotBlank @Email
 │   ├── ResetPasswordRequest.java     # email @NotBlank @Email, code @JsonAlias token/otp, token, newPassword @JsonAlias password + getEffectiveCode()/getEffectiveNewPassword() trim
-│   └── AuthResponse.java             # message, userId, name, email, username, role, token, expiresIn (detik) — dibungkus ApiResponse.data
+│   └── AuthResponse.java             # message, userId, name, email, username, role, token @JsonIgnore (hidden dari JSON, kirim via Set-Cookie access_token HttpOnly), expiresIn — dibungkus ApiResponse.data
 ├── entity/                           # 12 files = 12 tabel (password_reset_tokens dihapus, digabung ke auth)
 │   ├── User.java                     # users — UUID PK, email unique, username unique 20, nik unique 16, role ENUM CUSTOMER/ORGANIZER/ADMIN
 │   ├── Auth.java                     # auth — @ManyToOne User (user_id UNIQUE CASCADE), password BCrypt, authGoogle VARCHAR(20), aksesToken TEXT, expiredToken, status INACTIVE/ACTIVE, resetToken VARCHAR(255), resetExpiredAt
@@ -144,13 +153,13 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 | POST | `/api/v1/auth/register` | Public | cek duplikat email/username/nik → `User.Role.valueOf` fallback CUSTOMER → save `User` → BCrypt → save `Auth(INACTIVE)` → generate OTP 6-digit → save `otp` → `sendOtpEmail` → audit REGISTER → return tanpa token |
 | POST | `/api/v1/auth/verify-otp` | Public | find `User` by email → cek `Otp` by userId+otpCode → cek expired → set `Auth.status=ACTIVE` → delete OTP |
 | POST | `/api/v1/auth/resend-otp` | Public | find `User` → delete OTP lama → generate baru → save → kirim email |
-| POST | `/api/v1/auth/login` | Public | `getIdentifier()` (contains "@" → email else username, fallback) → find `User` → `findByUserUserId` → `matches` → cek `ACTIVE` else `Akun belum aktif!` → `generateToken(userId,email,role)` 86400000ms → update `aksesToken/expiredToken/ACTIVE` → return `token+expiresIn` |
-| POST | `/api/v1/auth/google` | Public | `GET tokeninfo?id_token=` → cek `aud==google.client-id`, `exp`, `email_verified` → find/create `User` (username auto) → find/create `Auth` dummy BCrypt `authGoogle[0:20]` → generate JWT |
+| POST | `/api/v1/auth/login` | Public | `getIdentifier()` (contains "@" → email else username, fallback) → find `User` → `findByUserUserId` → `matches` → cek `ACTIVE` else `Akun belum aktif!` → `generateToken(userId,email,role)` 86400000ms → update `aksesToken/expiredToken/ACTIVE` → `Set-Cookie access_token HttpOnly` + return `data` **tanpa token** (`@JsonIgnore`) + `expiresIn` |
+| POST | `/api/v1/auth/google` | Public | `GET tokeninfo?id_token=` → cek `aud==google.client-id`, `exp`, `email_verified` → find/create `User` (username auto) → find/create `Auth` dummy BCrypt `authGoogle[0:20]` → generate JWT → `Set-Cookie access_token HttpOnly` |
 | POST | `/api/v1/auth/reset-password` | Public | **Single endpoint 2 tahap (langsung di auth)**: tanpa `code`/`token` → generate 6-digit → `auth.reset_token/reset_expired_at` 15min → email. Dengan `code`/`token`+`newPassword` → `getEffectiveCode()` trim + cek `auth.resetToken==code && not expired` → update BCrypt → clear `resetToken` |
 
-`GET /` dan `GET /error` permit, `POST /api/auth/**` legacy permit. Lihat `SecurityConfig.java:37`.
+`GET /` dan `GET /error` permit, `POST /api/auth/**` legacy permit. Lihat `SecurityConfig.java:53`.
 
-**JWT Middleware** `JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`.
+**JWT Middleware** `JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` **atau** `Cookie: access_token` (`resolveToken()`) → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`. `AuthResponse.token` `@JsonIgnore` — token hanya via `Set-Cookie` HttpOnly, tidak di Network → Response.
 
 **Google Flow:** ID Token dari `https://accounts.google.com/gsi/client` (`data-client_id=google.client-id`) → `POST /google {idToken}`. Backend hanya verifikasi, tidak redirect.
 
@@ -192,23 +201,21 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 ## Build & Run
 ```bash
 ./mvnw clean compile -DskipTests   # BUILD SUCCESS
-./mvnw spring-boot:run             # port 8081
+./mvnw spring-boot:run             # port 8082
 ./mvnw test                        # 22 tests (AuthFlowIntegrationTest 21 + contextLoads) PASS
 
-curl -X POST localhost:8081/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","username":"john123","password":"123456","role":"CUSTOMER"}'
-curl -X POST localhost:8081/api/v1/auth/verify-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com","otpCode":"123456"}'
-curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
-curl -X POST localhost:8081/api/v1/auth/login -H "Content-Type: application/json" -d '{"username":"john123","password":"123456"}'
-curl -X POST localhost:8081/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
-curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'  # minta kode (simpan di auth.reset_token)
-curl -X POST localhost:8081/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456","newPassword":"newPass123"}'
-curl -H "Authorization: Bearer <token>" localhost:8081/any-protected   # 403 tanpa token
+curl -X POST localhost:8082/api/v1/auth/register -H "Content-Type: application/json" -d '{"name":"John","email":"john@mail.com","username":"john123","password":"123456","role":"CUSTOMER"}'
+curl -X POST localhost:8082/api/v1/auth/verify-otp -H "Content-Type: application/json" -d '{"email":"john@mail.com","otpCode":"123456"}'
+curl -X POST localhost:8082/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
+curl -X POST localhost:8082/api/v1/auth/login -H "Content-Type: application/json" -d '{"username":"john123","password":"123456"}'
+curl -X POST localhost:8082/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
+curl -X POST localhost:8082/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com"}'  # minta kode (simpan di auth.reset_token)
+curl -X POST localhost:8082/api/v1/auth/reset-password -H "Content-Type: application/json" -d '{"email":"john@mail.com","code":"123456","newPassword":"newPass123"}'
+curl -H "Authorization: Bearer <token>" localhost:8082/any-protected   # 401 tanpa token, 403 jika endpoint schema-only
 ```
 
 ## Reference Files
 - `API.md` — full API documentation (frontend handoff, lengkap curl & response)
 - `HELP.md` — Spring Boot help
 - `.vscode/settings.json` — IDE config
-
-```
 

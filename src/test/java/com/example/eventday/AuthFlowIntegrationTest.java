@@ -26,7 +26,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -201,8 +203,10 @@ class AuthFlowIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data.token").isNotEmpty())
-                .andExpect(jsonPath("$.data.username").value(username));
+                .andExpect(jsonPath("$.data.token").doesNotExist())
+                .andExpect(jsonPath("$.data.username").value(username))
+                .andExpect(cookie().exists("access_token"))
+                .andExpect(cookie().httpOnly("access_token", true));
     }
 
     @Test
