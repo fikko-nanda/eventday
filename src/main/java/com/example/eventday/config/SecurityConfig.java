@@ -14,7 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import java.util.Map;
+import com.example.eventday.dto.ApiResponse;
 
 @Configuration
 @EnableWebSecurity
@@ -42,12 +42,14 @@ public class SecurityConfig {
                 .authenticationEntryPoint((req, res, authEx) -> {
                     res.setStatus(HttpStatus.UNAUTHORIZED.value());
                     res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    res.getWriter().write(om.writeValueAsString(Map.of("msg", "Unauthorized: token tidak ada atau tidak valid", "status", 401, "data", "")));
+                    ApiResponse<Void> body = ApiResponse.unauthorized("Unauthorized: token tidak ada atau tidak valid");
+                    res.getWriter().write(om.writeValueAsString(body));
                 })
                 .accessDeniedHandler((req, res, accessEx) -> {
                     res.setStatus(HttpStatus.FORBIDDEN.value());
                     res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    res.getWriter().write(om.writeValueAsString(Map.of("msg", "Forbidden: akses ditolak", "status", 403, "data", "")));
+                    ApiResponse<Void> body = ApiResponse.forbidden("Forbidden: akses ditolak");
+                    res.getWriter().write(om.writeValueAsString(body));
                 })
             )
             .authorizeHttpRequests(auth -> auth

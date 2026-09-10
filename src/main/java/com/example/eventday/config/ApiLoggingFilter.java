@@ -28,38 +28,81 @@ public class ApiLoggingFilter extends OncePerRequestFilter {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         String query = request.getQueryString();
-        String ip = request.getRemoteAddr();
-        String userAgent = request.getHeader("User-Agent");
 
+        // 1. Ambil IP Asli Client (Bypass Proxy Ngrok/Nginx)
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        } else if (ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+
+        String userAgent = request.getHeader("User-Agent");
         String fullUri = query != null ? uri + "?" + query : uri;
 
-        // Wrap response untuk bisa baca status setelah chain
+        // 2. Wrap Response agar status code dan body dapat dibaca di akhir
         ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
+        String shortUa = userAgent != null ? userAgent.substring(0, Math.min(40, userAgent.length())).replaceAll("\\s+", " ") : "-";
 
         try {
-            log.info("[API HIT] [{}] {} {} from={} UA={}", reqId, method, fullUri, ip, userAgent != null ? userAgent.substring(0, Math.min(60, userAgent.length())) : "-");
+            // Log Request Masuk (Gunakan Teks ASCII Karakter Bersih)
+            log.info("[IN]  [{}] {} {} | IP={} | UA={}", reqId, method, fullUri, ip, shortUa);
             chain.doFilter(request, wrappedResponse);
         } finally {
             long duration = System.currentTimeMillis() - start;
             int status = wrappedResponse.getStatus();
-            String user = request.getUserPrincipal() != null ? request.getUserPrincipal().getName() : "-";
-            // Ambil JWT userId/role dari header jika ada (debug)
-            String authHeader = request.getHeader("Authorization");
-            String hasToken = (authHeader != null && authHeader.startsWith("Bearer ")) ? "yes" : "no";
 
-            if (status >= 400) {
-                log.warn("[API DONE] [{}] {} {} -> {} ({}ms) user={} token={} ip={}", reqId, method, fullUri, status, duration, user, hasToken, ip);
+            String user = request.getUserPrincipal() != null ? request.getUserPrincipal().getName() : "-";
+            String authHeader = request.getHeader("Authorization");
+            boolean hasToken = authHeader != null && authHeader.startsWith("Bearer ");
+            String cookie = request.getHeader("Cookie");
+            boolean hasCookie = cookie != null && cookie.contains("access_token");
+
+            // 3. Format Penanda Status Tanpa Emoji Agar Tidak Rusak di Terminal
+            String statusTag;
+            String statusLabel;
+            if (status >= 500) {
+                statusTag = "[ERROR]";
+                statusLabel = "ERROR";
+            } else if (status >= 400) {
+                statusTag = "[WARN]";
+                statusLabel = "FAIL";
+            } else if (status >= 300) {
+                statusTag = "[INFO]";
+                statusLabel = "REDIRECT";
             } else {
-                log.info("[API DONE] [{}] {} {} -> {} ({}ms) user={} token={} ip={}", reqId, method, fullUri, status, duration, user, hasToken, ip);
+                statusTag = "[OK]";
+                statusLabel = "OK";
             }
-            // Penting: copy body ke response asli
+
+            String authInfo = hasToken ? "Bearer" : hasCookie ? "Cookie" : "none";
+            String durationStr = duration > 1000 ? String.format("%.2fs", duration / 1000.0) : duration + "ms";
+            String slowNotice = duration > 1000 ? " [SLOW!]" : "";
+
+            // 4. Catat Log Outgoing Sesuai Level Status
+            if (status >= 500) {
+                log.error("[OUT] {} [{}] {} {} -> {} {} ({}) user={} auth={} ip={}{}", 
+                        statusTag, reqId, method, fullUri, status, statusLabel, durationStr, user, authInfo, ip, slowNotice);
+            } else if (status >= 400) {
+                log.warn("[OUT] {} [{}] {} {} -> {} {} ({}) user={} auth={} ip={}{}", 
+                        statusTag, reqId, method, fullUri, status, statusLabel, durationStr, user, authInfo, ip, slowNotice);
+            } else {
+                log.info("[OUT] {} [{}] {} {} -> {} {} ({}) user={} auth={} ip={}{}", 
+                        statusTag, reqId, method, fullUri, status, statusLabel, durationStr, user, authInfo, ip, slowNotice);
+            }
+
+            // 5. Salin Kembali Body Response Agar Diterima Frontend
             wrappedResponse.copyBodyToResponse();
         }
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        // Skip static / actuator jika ada
+        // Abaikan request preflight OPTIONS agar tidak mengotori log
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+
         String path = request.getRequestURI();
         return path.startsWith("/actuator") || path.equals("/favicon.ico");
     }
