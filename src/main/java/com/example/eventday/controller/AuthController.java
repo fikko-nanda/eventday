@@ -29,9 +29,9 @@ public class AuthController {
         try {
             AuthResponse data = authService.register(request);
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(ApiResponse.<AuthResponse>builder().msg(data.getMessage()).status(201).data(data).build());
+                    .body(ApiResponse.created(data.getMessage(), data));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -48,9 +48,9 @@ public class AuthController {
                     .build();
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                    .body(ApiResponse.success(data.getMessage(), data));
+                    .body(ApiResponse.ok(data.getMessage(), data));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -58,7 +58,6 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> loginWithGoogle(@Valid @RequestBody GoogleLoginRequest request) {
         try {
             AuthResponse data = authService.loginWithGoogle(request);
-            int status = data.getMessage().contains("Registrasi") ? 201 : 200;
             ResponseCookie cookie = ResponseCookie.from("access_token", data.getToken())
                     .httpOnly(true)
                     .secure(false)
@@ -66,11 +65,16 @@ public class AuthController {
                     .maxAge(data.getExpiresIn())
                     .sameSite("Lax")
                     .build();
-            return ResponseEntity.status(status)
+            if (data.getMessage().contains("Registrasi")) {
+                return ResponseEntity.status(HttpStatus.CREATED)
+                        .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                        .body(ApiResponse.created(data.getMessage(), data));
+            }
+            return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                    .body(ApiResponse.<AuthResponse>builder().msg(data.getMessage()).status(status).data(data).build());
+                    .body(ApiResponse.ok(data.getMessage(), data));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -78,9 +82,9 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> verifyOtp(@Valid @RequestBody VerifyOtpRequest request) {
         try {
             String msg = authService.verifyOtp(request.getEmail(), request.getOtpCode());
-            return ResponseEntity.ok(ApiResponse.success(msg));
+            return ResponseEntity.ok(ApiResponse.ok(msg));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -88,9 +92,9 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> resendOtp(@Valid @RequestBody ResendOtpRequest request) {
         try {
             String msg = authService.resendOtp(request.getEmail());
-            return ResponseEntity.ok(ApiResponse.success(msg));
+            return ResponseEntity.ok(ApiResponse.ok(msg));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -98,9 +102,9 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         try {
             String msg = authService.resetPassword(request);
-            return ResponseEntity.ok(ApiResponse.success(msg));
+            return ResponseEntity.ok(ApiResponse.ok(msg));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 }

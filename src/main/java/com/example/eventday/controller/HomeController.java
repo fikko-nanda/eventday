@@ -10,6 +10,6 @@ public class HomeController {
 
     @GetMapping("/")
     public ResponseEntity<ApiResponse<String>> home() {
-        return ResponseEntity.ok(ApiResponse.success("Eventday API Server is Running!", "OK"));
+        return ResponseEntity.ok(ApiResponse.ok("Eventday API Server is Running!", "OK"));
     }
 }

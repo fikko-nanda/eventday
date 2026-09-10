@@ -5,6 +5,7 @@ import com.example.eventday.dto.EventCatalogResponse;
 import com.example.eventday.dto.EventDetailResponse;
 import com.example.eventday.service.EventService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,9 +28,9 @@ public class EventController {
             @RequestParam(defaultValue = "latest") String sort) {
         try {
             EventCatalogResponse data = eventService.getEvents(category, search, location, page, size, sort);
-            return ResponseEntity.ok(ApiResponse.success("Berhasil mengambil daftar event", data));
+            return ResponseEntity.ok(ApiResponse.ok("Berhasil mengambil daftar event", data));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -37,9 +38,9 @@ public class EventController {
     public ResponseEntity<ApiResponse<EventCatalogResponse>> getFeaturedEvents() {
         try {
             EventCatalogResponse data = eventService.getFeaturedEvents();
-            return ResponseEntity.ok(ApiResponse.success("Berhasil mengambil event unggulan", data));
+            return ResponseEntity.ok(ApiResponse.ok("Berhasil mengambil event unggulan", data));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -47,9 +48,9 @@ public class EventController {
     public ResponseEntity<ApiResponse<EventDetailResponse>> getEventDetail(@PathVariable UUID id) {
         try {
             EventDetailResponse data = eventService.getEventDetail(id);
-            return ResponseEntity.ok(ApiResponse.success("Berhasil mengambil detail event", data));
+            return ResponseEntity.ok(ApiResponse.ok("Berhasil mengambil detail event", data));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 404));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.notFound(e.getMessage()));
         }
     }
 }
