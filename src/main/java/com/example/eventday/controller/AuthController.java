@@ -11,7 +11,9 @@ import com.example.eventday.dto.VerifyOtpRequest;
 import com.example.eventday.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,7 +39,16 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody LoginRequest request) {
         try {
             AuthResponse data = authService.login(request);
-            return ResponseEntity.ok(ApiResponse.success(data.getMessage(), data));
+            ResponseCookie cookie = ResponseCookie.from("access_token", data.getToken())
+                    .httpOnly(true)
+                    .secure(false)
+                    .path("/")
+                    .maxAge(data.getExpiresIn())
+                    .sameSite("Lax")
+                    .build();
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                    .body(ApiResponse.success(data.getMessage(), data));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
         }
@@ -48,7 +59,16 @@ public class AuthController {
         try {
             AuthResponse data = authService.loginWithGoogle(request);
             int status = data.getMessage().contains("Registrasi") ? 201 : 200;
-            return ResponseEntity.status(status).body(ApiResponse.<AuthResponse>builder().msg(data.getMessage()).status(status).data(data).build());
+            ResponseCookie cookie = ResponseCookie.from("access_token", data.getToken())
+                    .httpOnly(true)
+                    .secure(false)
+                    .path("/")
+                    .maxAge(data.getExpiresIn())
+                    .sameSite("Lax")
+                    .build();
+            return ResponseEntity.status(status)
+                    .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                    .body(ApiResponse.<AuthResponse>builder().msg(data.getMessage()).status(status).data(data).build());
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), 400));
         }
