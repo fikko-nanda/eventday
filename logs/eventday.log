@@ -4210,3 +4210,105 @@ This generated password is for development use only. Your security configuration
 2026-09-10 14:50:16 [SpringApplicationShutdownHook] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
 2026-09-10 14:50:16 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
 2026-09-10 14:50:16 [SpringApplicationShutdownHook] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2026-09-10 14:50:25 [main] INFO  c.e.eventday.EventdayApplication - Starting EventdayApplication using Java 21.0.12.1 with PID 25160 (D:\eventday\target\classes started by KOPIKO in D:\eventday)
+2026-09-10 14:50:25 [main] DEBUG c.e.eventday.EventdayApplication - Running with Spring Boot v3.2.4, Spring v6.1.5
+2026-09-10 14:50:25 [main] INFO  c.e.eventday.EventdayApplication - No active profile set, falling back to 1 default profile: "default"
+2026-09-10 14:50:26 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-09-10 14:50:26 [main] INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 76 ms. Found 6 JPA repository interfaces.
+2026-09-10 14:50:27 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 8082 (http)
+2026-09-10 14:50:27 [main] INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-09-10 14:50:27 [main] INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.19]
+2026-09-10 14:50:27 [main] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-09-10 14:50:27 [main] INFO  o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 1606 ms
+2026-09-10 14:50:27 [main] INFO  o.h.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-09-10 14:50:27 [main] INFO  org.hibernate.Version - HHH000412: Hibernate ORM core version 6.4.4.Final
+2026-09-10 14:50:27 [main] INFO  o.h.c.i.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2026-09-10 14:50:28 [main] INFO  o.s.o.j.p.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-09-10 14:50:28 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2026-09-10 14:50:28 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@6b3f4bd8
+2026-09-10 14:50:28 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2026-09-10 14:50:29 [main] INFO  o.h.e.t.j.p.i.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-09-10 14:50:30 [main] INFO  o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-09-10 14:50:30 [main] DEBUG c.e.e.s.JwtAuthenticationFilter - Filter 'jwtAuthenticationFilter' configured for use
+2026-09-10 14:50:30 [main] INFO  o.s.d.j.r.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-09-10 14:50:31 [main] WARN  o.s.b.a.o.j.JpaBaseConfiguration$JpaWebConfiguration - spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-09-10 14:50:31 [main] WARN  o.s.b.a.s.s.UserDetailsServiceAutoConfiguration - 
+
+Using generated security password: 021d736d-8f43-4c4f-abe7-88074c009c4d
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2026-09-10 14:50:31 [main] INFO  o.s.s.web.DefaultSecurityFilterChain - Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@926d264, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@301db982, org.springframework.security.web.context.SecurityContextHolderFilter@6d91e1ba, org.springframework.security.web.header.HeaderWriterFilter@747c3ad5, org.springframework.web.filter.CorsFilter@535b4dbf, org.springframework.security.web.authentication.logout.LogoutFilter@42343f6d, com.example.eventday.security.JwtAuthenticationFilter@5f346355, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@18f94d41, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@7224ab89, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@4f3891db, org.springframework.security.web.session.SessionManagementFilter@5728d44a, org.springframework.security.web.access.ExceptionTranslationFilter@77e062f4, org.springframework.security.web.access.intercept.AuthorizationFilter@2443b82a]
+2026-09-10 14:50:32 [main] INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat started on port 8082 (http) with context path ''
+2026-09-10 14:50:32 [main] INFO  c.e.eventday.EventdayApplication - Started EventdayApplication in 6.743 seconds (process running for 7.174)
+2026-09-10 14:50:38 [http-nio-8082-exec-1] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-09-10 14:50:38 [http-nio-8082-exec-1] INFO  o.s.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-09-10 14:50:38 [http-nio-8082-exec-1] INFO  o.s.web.servlet.DispatcherServlet - Completed initialization in 2 ms
+2026-09-10 14:50:38 [http-nio-8082-exec-1] INFO  c.e.eventday.config.ApiLoggingFilter - [IN]  [c5a0bae1] POST /api/v1/auth/login | IP=2400:9800:3cd:197d:1187:a5f4:bcb3:6a41 | UA=Mozilla/5.0 (Linux; Android 10; K) Apple
+2026-09-10 14:50:38 [http-nio-8082-exec-1] DEBUG o.s.security.web.FilterChainProxy - Securing POST /api/v1/auth/login
+2026-09-10 14:50:38 [http-nio-8082-exec-1] DEBUG o.s.s.w.a.AnonymousAuthenticationFilter - Set SecurityContextHolder to anonymous SecurityContext
+2026-09-10 14:50:38 [http-nio-8082-exec-1] DEBUG o.s.security.web.FilterChainProxy - Secured POST /api/v1/auth/login
+2026-09-10 14:50:38 [http-nio-8082-exec-1] DEBUG org.hibernate.SQL - 
+    select
+        u1_0.user_id,
+        u1_0.create_by,
+        u1_0.created_at,
+        u1_0.email,
+        u1_0.name,
+        u1_0.nik,
+        u1_0.phone,
+        u1_0.role,
+        u1_0.updated_at,
+        u1_0.updated_by,
+        u1_0.username 
+    from
+        users u1_0 
+    where
+        u1_0.email=?
+2026-09-10 14:50:38 [http-nio-8082-exec-1] DEBUG org.hibernate.SQL - 
+    select
+        a1_0.auth_id,
+        a1_0.akses_token,
+        a1_0.auth_google,
+        a1_0.create_by,
+        a1_0.created_at,
+        a1_0.expired_token,
+        a1_0.password,
+        a1_0.reset_expired_at,
+        a1_0.reset_token,
+        a1_0.status,
+        a1_0.updated_at,
+        a1_0.updated_by,
+        a1_0.user_id 
+    from
+        auth a1_0 
+    left join
+        users u1_0 
+            on u1_0.user_id=a1_0.user_id 
+    where
+        u1_0.user_id=?
+2026-09-10 14:50:38 [http-nio-8082-exec-1] DEBUG org.hibernate.SQL - 
+    insert 
+    into
+        audit_logs
+        (action, actor_id, actor_name, created_at, detail, audit_id) 
+    values
+        (?, ?, ?, ?, ?, ?)
+2026-09-10 14:50:38 [http-nio-8082-exec-1] DEBUG org.hibernate.SQL - 
+    update
+        auth 
+    set
+        akses_token=?,
+        auth_google=?,
+        create_by=?,
+        expired_token=?,
+        password=?,
+        reset_expired_at=?,
+        reset_token=?,
+        status=?,
+        updated_at=?,
+        updated_by=?,
+        user_id=? 
+    where
+        auth_id=?
+2026-09-10 14:50:38 [http-nio-8082-exec-1] INFO  c.e.eventday.config.ApiLoggingFilter - [OUT] [OK] [c5a0bae1] POST /api/v1/auth/login -> 200 OK (551ms) user=- auth=none ip=2400:9800:3cd:197d:1187:a5f4:bcb3:6a41
