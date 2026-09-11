@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -30,4 +31,27 @@ public interface EventRepository extends JpaRepository<Event, UUID> {
 
     @Query("SELECT e FROM Event e WHERE e.eventId = :id AND e.status = 'PUBLISHED'")
     Event findPublishedEventById(@Param("id") UUID id);
+
+    // ===== MODUL 01: HOME & SEARCH =====
+    // NOTE: entity memakai venueName (bukan location) dan status PUBLISHED (bukan ACTIVE)
+    @Query("SELECT DISTINCT e.venueName FROM Event e WHERE e.venueName IS NOT NULL AND e.status = 'PUBLISHED' ORDER BY e.venueName ASC")
+    List<String> findDistinctLocations();
+
+    @Query("SELECT DISTINCT e.category FROM Event e WHERE e.category IS NOT NULL AND e.status = 'PUBLISHED' ORDER BY e.category ASC")
+    List<String> findDistinctCategories();
+
+    @Query("SELECT e FROM Event e WHERE "
+            + "e.status = 'PUBLISHED' AND "
+            + "(CAST(:keyword AS string) IS NULL OR LOWER(e.title) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) "
+            + "OR LOWER(e.description) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) "
+            + "OR LOWER(e.venueName) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))) AND "
+            + "(CAST(:category AS string) IS NULL OR e.category = :category) AND "
+            + "(CAST(:location AS string) IS NULL OR LOWER(e.venueName) LIKE LOWER(CONCAT('%', CAST(:location AS string), '%'))) AND "
+            + "(:date IS NULL OR CAST(e.startDate AS date) = :date)")
+    Page<Event> searchPublishedEvents(
+            @Param("keyword") String keyword,
+            @Param("category") String category,
+            @Param("location") String location,
+            @Param("date") java.time.LocalDate date,
+            Pageable pageable);
 }

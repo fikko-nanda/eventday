@@ -17,7 +17,7 @@ import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
-
+@SuppressWarnings("null")
 @Service
 @RequiredArgsConstructor
 public class EventService {

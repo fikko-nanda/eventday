@@ -3,7 +3,7 @@
 ## Project Overview
 Spring Boot 3.2.4 (Java 21, target Java 25) REST API, PostgreSQL, Maven, port 8082. Eventday ticketing: user/organizer/event/ticket/booking/order/payment/refund management.
 
-> **Status 2026-09-10:** Tahap 1 (JPA Entities 12 tabel) & Tahap 2 (Auth Only + Google Login + OTP + Reset Password) **SELESAI**. Tahap 3 (Customer Event Catalog) **SELESAI** — `EventController`, `EventService`, DTO + Repository aktif. `API.md` & `AGENTS.md` sinkron dengan `application.properties` (port 8082).
+> **Status 2026-09-10 (rev.2):** Tahap 1 (JPA 12 tabel) & Tahap 2 (Auth + Google/OTP/Reset) & Tahap 3 (Customer Event Catalog) **SELESAI**. Fix CORS `CorsConfigurationSource` + `ApiLoggingFilter` warna + `ApiResponse` konsisten helper `created/ok/badRequest` — `API.md` & `AGENTS.md` sinkron dengan `application.properties` (port 8082).
 
 > **Status 2026-09-04:** `.github/modernize/java-upgrade/20260904031947/` — active plan to upgrade Java 21 → 25. Do NOT execute unless explicitly asked.
 
@@ -69,7 +69,7 @@ logging.level.org.springframework.security=DEBUG
 logging.level.org.hibernate.SQL=DEBUG
 logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
 logging.level.org.springframework.mail=DEBUG
-logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} - %msg%n
+logging.pattern.console=%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p){cyan} %clr([%15.15t]){faint} %clr(%-40.40logger{0}){yellow} %clr(:){faint} %highlight(%msg%n%wEx)
 logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
 logging.file.name=logs/eventday.log
 ```
@@ -79,20 +79,20 @@ logging.file.name=logs/eventday.log
 src/main/java/com/example/eventday/
 ├── EventdayApplication.java          # @SpringBootApplication @EnableScheduling
 ├── controller/
-│   ├── AuthController.java           # POST /api/v1/auth/register, login, google, verify-otp, resend-otp, reset-password
-│   ├── EventController.java          # GET /api/v1/events, /events/featured, /events/{id}
-│   └── HomeController.java           # GET "/" → "Eventday API Server is Running!"
+│   ├── AuthController.java           # POST /api/v1/auth/* → ApiResponse.created(201)/ok(200)/badRequest(400), Set-Cookie access_token HttpOnly
+│   ├── EventController.java          # GET /api/v1/events, /events/featured, /events/{id} → ApiResponse.ok(200)/notFound(404)
+│   └── HomeController.java           # GET "/" → ApiResponse.ok("Eventday API Server is Running!","OK")
 ├── config/
-│   ├── CorsConfig.java               # GLOBAL CORS * (ngrok), allowCredentials true, maxAge 3600
-│   ├── ApiLoggingFilter.java         # OncePerRequestFilter log [API HIT]/[API DONE] method URI status duration
-│   ├── GlobalExceptionHandler.java   # @RestControllerAdvice handle Validation/401/403 -> ApiResponse
-│   └── SecurityConfig.java           # BCrypt, STATELESS, / & /error permitAll, /api/v1/auth/** permitAll, /api/auth/** permitAll (legacy), JwtAuthenticationFilter + 401/403 Json ApiResponse
+│   ├── CorsConfig.java               # WebMvcConfigurer + CorsConfigurationSource GLOBAL "*" allowCredentials true, exposedHeaders Set-Cookie/Authorization, maxAge 3600 (untuk ngrok + localhost:5173)
+│   ├── ApiLoggingFilter.java         # OncePerRequestFilter warna: ┌─ ▶ [reqId] METHOD URI | └─ ✅/⚠/❌ status → duration auth ip (slow >1s)
+│   ├── GlobalExceptionHandler.java   # @RestControllerAdvice → ApiResponse.badRequest/unauthorized/forbidden/internalError (400/401/403/500)
+│   └── SecurityConfig.java           # BCrypt, STATELESS, / & /error permitAll, /api/v1/auth/** permitAll, ApiResponse.unauthorized/forbidden via ObjectMapper di entryPoint/accessDenied
 ├── security/
 │   ├── JwtTokenProvider.java         # @Value jwt.secret + jwt.expiration-ms, HS256 generate/validate
 │   ├── JwtUtil.java                  # COMPAT — jangan hapus
 │   └── JwtAuthenticationFilter.java  # OncePerRequestFilter, Bearer → validate → ROLE_*
 ├── dto/
-│   ├── ApiResponse.java              # Wrapper {msg, status, data} — semua controller pakai ini (200/201/400/401/403)
+│   ├── ApiResponse.java              # Wrapper {msg, status, data} @JsonInclude ALWAYS — helper created(201)/ok(200)/badRequest(400)/unauthorized(401)/forbidden(403)/notFound(404)/internalError(500)
 │   ├── RegisterRequest.java          # name @NotBlank @Size100, email @Email unique, username @NotBlank @Size3-20 @Pattern ^[a-zA-Z0-9_]+$ unique, phone @Size15, password @NotBlank @Size6, nik @Pattern \d{16} unique, role String
 │   ├── LoginRequest.java             # email, username, identifier, password + getIdentifier() (contains "@" → email else username, fallback)
 │   ├── GoogleLoginRequest.java       # idToken @NotBlank
@@ -182,7 +182,7 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 `POST /api/v1/orders`, `POST /api/v1/payments/pay/{orderId}`, `POST /api/tickets/scan/{ticketItemId}`, `GET/PUT /api/settings`, `POST /api/refunds` — entity+table ready, 403 jika dipanggil。
 
 ## Key Business Logic (Auth + Event Catalog)
-- `CorsConfig.java:10` global `*` untuk ngrok (maxAge 3600, allowCredentials).
+- `CorsConfig.java:10` `WebMvcConfigurer` + `CorsConfigurationSource` global `*` `allowCredentials true`, `exposedHeaders Set-Cookie,Authorization`, `maxAge 3600` untuk ngrok + `localhost:5173` (fix `POST /register` 401 bukan CORS, tapi `BASE` tanpa `/api/v1/auth`).
 - Password hanya di `auth.password`, tidak di `users`. Untuk Google, dummy UUID BCrypt (kolom NOT NULL).
 - Token JWT disimpan di DB `auth.aksesToken` untuk invalidasi logout (`AuthService.logout` null-kan token, belum expose endpoint).
 - `authGoogle` `VARCHAR(20)` → `sub.substring(0,20)`.
@@ -190,7 +190,7 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 - Reset Password **digabung ke `auth`**: `auth.reset_token` + `auth.reset_expired_at` (mentor request, tidak lagi tabel terpisah). `ResetPasswordRequest` trim code & alias `token`/`otp`.
 - Register flow: `register()` generates 6-digit OTP → `otp` exp 5min → email. `verifyOtp()` → `ACTIVE`. `resendOtp()` invalidates old → new.
 - `@EnableScheduling` aktif di `EventdayApplication.java` tapi belum ada job.
-- Logging Spring Boot aktif `logging.level.com.example.eventday=DEBUG` → `logs/eventday.log`.
+- Logging Spring Boot aktif `logging.level.com.example.eventday=DEBUG` → `logs/eventday.log`. Console warna `%clr %highlight` + `ApiLoggingFilter` `┌─ ▶ [reqId] METHOD URI | └─ ✅/⚠/❌ status → duration auth ip (slow >1s)`.
 
 ## Known Issues / TODO
 1. `jwt.secret` hardcoded — prod pindah env/Secret Manager.
