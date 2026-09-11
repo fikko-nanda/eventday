@@ -1,9 +1,11 @@
 package com.example.eventday.service;
 
-import com.example.eventday.dto.InitiateCheckoutRequest;
+import com.example.eventday.dto.*;
 import com.example.eventday.entity.Order;
 import com.example.eventday.entity.TicketTier;
 import com.example.eventday.entity.User;
+import com.example.eventday.model.Attendee;
+import com.example.eventday.repository.AttendeeRepository;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.TicketTierRepository;
 import com.example.eventday.repository.UserRepository;
@@ -14,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +25,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
     private final TicketTierRepository ticketTierRepository;
+    private final AttendeeRepository attendeeRepository; // Injeksi Repository Attendee
 
     @Value("${app.order.admin-fee:5000}")
     private BigDecimal adminFee;
@@ -60,5 +63,60 @@ public class OrderService {
                 .build();
 
         return orderRepository.save(order);
+    }
+
+    // 1. Simpan Data Peserta ke DB (Menghilangkan STUB)
+    @Transactional
+    public List<Attendee> saveAttendees(AttendeeRequest request) {
+        if (request.getAttendees() == null || request.getAttendees().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Attendee> savedList = new ArrayList<>();
+        for (AttendeeRequest.AttendeeItem item : request.getAttendees()) {
+            Attendee attendee = new Attendee();
+            attendee.setOrderId(request.getOrderId());
+            attendee.setFullName(item.getFullName());
+            attendee.setEmail(item.getEmail());
+            attendee.setPhoneNumber(item.getPhoneNumber());
+            attendee.setIdentityNumber(item.getIdentityNumber());
+            savedList.add(attendeeRepository.save(attendee));
+        }
+        return savedList;
+    }
+
+    // 2. Kalkulasi Rincian Checkout
+    public CalculationResponse calculateCheckout(CalculationRequest request) {
+        TicketTier tier = ticketTierRepository.findById(request.getTierId())
+                .orElseThrow(() -> new IllegalArgumentException("Ticket tier tidak ditemukan"));
+
+        BigDecimal subtotal = tier.getPrice().multiply(BigDecimal.valueOf(request.getQuantity()));
+        BigDecimal tax = subtotal.multiply(BigDecimal.valueOf(0.10)); // Pajak 10%
+        BigDecimal discount = request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO;
+        BigDecimal totalAmount = subtotal.add(adminFee).add(tax).subtract(discount);
+
+        return CalculationResponse.builder()
+                .subtotal(subtotal)
+                .adminFee(adminFee)
+                .tax(tax)
+                .discount(discount)
+                .totalAmount(totalAmount)
+                .build();
+    }
+
+    // 3. Process Checkout (Kunci status menjadi WAITING_PAYMENT)
+    @Transactional
+    public Order processCheckout(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan"));
+        order.setStatus("WAITING_PAYMENT");
+        return orderRepository.save(order);
+    }
+
+    // 4. Cek Status Order (Polling Frontend)
+    public String getOrderStatus(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan"));
+        return order.getStatus();
     }
 }
