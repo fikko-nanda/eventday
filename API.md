@@ -3,10 +3,10 @@
 Base URL (lokal): `http://localhost:8082`
 Base URL (ngrok lintas-laptop): `https://<id-baru>.ngrok-free.app` → `ngrok http 8082`
 
-> **Status 2026-09-10:** Modul **Auth** aktif + **Customer Event Catalog** aktif (port 8082, wrapper `{msg,status,data}`). Modul lain (Orders/Payments/Tickets/Refunds) masih **SCHEMA ONLY**.
-> **Last Updated:** 2026-09-10 — sinkron dengan `application.properties` (port 8082), `EventController.java`, `EventService.java`, `CorsConfig.java` (`allowedOriginPatterns("*")` untuk ngrok).
+> **Status 2026-09-10 (rev.2):** Modul **Auth** aktif + **Customer Event Catalog** aktif (port 8082, wrapper `{msg,status,data}` `ApiResponse` konsisten). Fix CORS `CorsConfigurationSource` + `ApiLoggingFilter` warna — `API.md` & `AGENTS.md` sinkron `application.properties` (port 8082).
+> **Last Updated:** 2026-09-10 (rev.2) — sinkron dengan `application.properties` (port 8082), `EventController.java`, `EventService.java`, `CorsConfig.java` (`CorsConfigurationSource` `*` untuk ngrok), `ApiResponse.java` helper `created/ok/badRequest`, `ApiLoggingFilter.java` warna.
 > **ngrok:** URL `9538-2400-...ngrok-free.app` di screenshot sudah expired. Jalankan `ngrok http 8082` di laptop backend, copy URL baru, ganti `BASE` di frontend. `localhost:8082` hanya untuk 1 laptop.
-> **Response Standard:** Semua API sekarang pakai format ** `{msg, status, data}` ** — `status` = HTTP code, `msg` = pesan, `data` = payload / `null`.
+> **Response Standard:** Semua API pakai `ApiResponse.java` `{msg, status, data}` `@JsonInclude ALWAYS` — helper `created(201)/ok(200)/badRequest(400)/unauthorized(401)/forbidden(403)/notFound(404)/internalError(500)`. `SecurityConfig.java` + `GlobalExceptionHandler.java` juga pakai `ApiResponse`.
 
 ```json
 // sukses auth (token via Set-Cookie HttpOnly, tidak di JSON)
@@ -472,18 +472,18 @@ curl -b cookies.txt localhost:8082/api/v1/events/{uuid}
 
 ---
 
-## Error Format Global (sudah rapi)
+## Error Format Global (sudah rapi — ApiResponse konsisten)
 
-`dto/ApiResponse.java:10` `GlobalExceptionHandler.java:10` + `SecurityConfig.java:33` — semua return `{msg,status,data}`:
+`dto/ApiResponse.java:9` `@JsonInclude ALWAYS` + `GlobalExceptionHandler.java:10` + `SecurityConfig.java:42` — semua return `{msg,status,data}` via helper:
 
-*   Validasi `@Valid` → `400` `{"msg":"username: Username 3-20 karakter","status":400,"data":null}`
-*   `RuntimeException` → `400`
-*   `AuthenticationException` → `401`
-*   `AccessDeniedException` → `403`
-*   `Exception` → `500`
-*   Sukses → `200` / `201` (register/google baru)
+*   Validasi `@Valid` → `ApiResponse.badRequest` `400` `{"msg":"username: Username 3-20 karakter","status":400,"data":null}`
+*   `RuntimeException` → `badRequest` `400`
+*   `AuthenticationException` → `unauthorized` `401`
+*   `AccessDeniedException` → `forbidden` `403`
+*   `Exception` → `internalError` `500`
+*   Sukses → `ok(200)` / `created(201)` (register/google baru) — `AuthController.java:27` `created`, `EventController.java:20` `ok`/`notFound(404)`, `HomeController.java:10` `ok("Eventday API Server is Running!","OK")`
 
-Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk branching, `data` untuk payload. `HomeController.java:10` juga sudah `{msg,status:200,data:"OK"}`.
+Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk branching, `data` untuk payload.
 
 ---
 
@@ -568,13 +568,13 @@ export const getEventDetail = (id) => apiGet(`/events/${id}`);
 ```
 
 1. Base `http://localhost:8082`, `Content-Type: application/json`, `credentials:'include'` selalu.
-2. Cek `json.status` & `json.msg` untuk toast, `json.data` untuk payload.
-3. Register `201` → langsung ke form OTP.
-4. Login `200` → `data.expiresIn` + `Set-Cookie access_token` (tidak ada `data.token`).
-5. Tanpa cookie → `401/403` `{msg,status}` — redirect ke login.
-6. `CORS *` allow, `maxAge 3600`, `allowCredentials true` — aman untuk ngrok.
+2. Cek `json.status` & `json.msg` untuk toast, `json.data` untuk payload (`data` selalu ada via `ALWAYS`).
+3. Register `201` `ApiResponse.created` → langsung ke form OTP.
+4. Login `200` `ApiResponse.ok` → `data.expiresIn` + `Set-Cookie access_token` (tidak ada `data.token`).
+5. Tanpa cookie → `401` `unauthorized` / `403` `forbidden` `{msg,status}` — redirect ke login.
+6. `CorsConfig.java:10` `CorsConfigurationSource` `*` `allowCredentials true` `exposedHeaders Set-Cookie,Authorization` `maxAge 3600` — aman untuk ngrok.
 7. OTP `5 menit`, Reset code `15 menit`, JWT `24 jam`.
-8. `ApiLoggingFilter.java:10` log tiap hit: `[API HIT] POST /api/v1/auth/login -> 200 (45ms)`.
+8. `ApiLoggingFilter.java:10` warna `┌─ ▶ [reqId] METHOD URI | └─ ✅/⚠/❌ status → duration auth ip (slow >1s)` + console `%clr %highlight`.
 9. Customer events paginated `?page&size` — default `page 0 size 12`.
 10. Harga number IDR, format `Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR"})`.
 ```

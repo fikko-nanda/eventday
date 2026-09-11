@@ -56,6 +56,9 @@ public class SecurityConfig {
                 // Perbaikan: tambahkan "/" dan "/error" agar browser tidak memunculkan 403 saat akses ngrok root
                 .requestMatchers("/", "/error").permitAll()
                 .requestMatchers("/api/v1/auth/**").permitAll()
+                // MODUL 01: Home & Search publik sesuai PDF v1.3.0
+                .requestMatchers("/api/v1/home/**").permitAll()
+                .requestMatchers("/api/v1/search/**").permitAll()
                 // backward compat lama
                 .requestMatchers("/api/auth/**").permitAll()
                 .anyRequest().authenticated()
