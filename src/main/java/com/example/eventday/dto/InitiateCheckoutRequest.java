@@ -11,8 +11,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentChargeRequest {
-    private UUID orderId;
-    private String paymentMethod; // e.g., "VIRTUAL_ACCOUNT"
-    private String bankCode;      // e.g., "BCA", "MANDIRI", "BRI"
+public class InitiateCheckoutRequest {
+    private UUID tierId;
+    private Integer quantity;
 }
