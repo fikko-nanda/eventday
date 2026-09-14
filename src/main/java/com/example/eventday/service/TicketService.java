@@ -1,5 +1,6 @@
 package com.example.eventday.service;
 
+import com.example.eventday.dto.TicketDetailResponse;
 import com.example.eventday.entity.Order;
 import com.example.eventday.entity.TicketItem;
 import com.example.eventday.entity.TicketTier;
@@ -18,7 +19,6 @@ public class TicketService {
 
     private final TicketItemRepository ticketItemRepository;
 
-    // Call ini setelah transaksi/checkout berhasil
     @Transactional
     public TicketItem generateTicket(Order order, TicketTier tier, String attendeeName, String attendeeEmail, String attendeeNik) {
         TicketItem ticketItem = TicketItem.builder()
@@ -35,6 +35,52 @@ public class TicketService {
 
     public List<TicketItem> getTicketsByEmail(String email) {
         return ticketItemRepository.findByOrderCustomerEmailOrderByCreatedAtDesc(email);
+    }
+
+    // Endpoint query data detail E-Ticket berdasarkan UUID kode tiket (/tickets/issued-detail)
+    @Transactional(readOnly = true)
+    public TicketDetailResponse getIssuedDetail(String ticketCode) {
+        UUID ticketItemId;
+        try {
+            ticketItemId = UUID.fromString(ticketCode);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Format kode tiket tidak valid!");
+        }
+
+        TicketItem ticket = ticketItemRepository.findById(ticketItemId)
+                .orElseThrow(() -> new IllegalArgumentException("Tiket tidak ditemukan!"));
+
+        Order order = ticket.getOrder();
+        TicketTier tier = ticket.getTier();
+
+        String eventTitle = null;
+        LocalDateTime eventDate = null;
+        String venueName = null;
+        String categoryName = null;
+
+        if (tier != null) {
+            categoryName = tier.getTierName();
+            if (tier.getEvent() != null) {
+                eventTitle = tier.getEvent().getTitle();
+                eventDate = tier.getEvent().getStartDate(); // Disesuaikan dengan Event.java (getStartDate)
+                venueName = tier.getEvent().getVenueName();
+            }
+        }
+
+        return TicketDetailResponse.builder()
+                .ticketId(ticket.getTicketItemId().toString())
+                .ticketCode(ticket.getTicketItemId().toString())
+                .orderId(order != null && order.getOrderId() != null ? order.getOrderId().toString() : null)
+                .eventTitle(eventTitle)
+                .eventDate(eventDate)
+                .venueName(venueName)
+                .categoryName(categoryName)
+                .attendeeName(ticket.getAttendeeName())
+                .attendeeEmail(ticket.getAttendeeEmail())
+                .attendeeIdentityNumber(ticket.getAttendeeNik())
+                .status(ticket.getCheckInStatus())
+                .issuedAt(ticket.getCreatedAt() != null ? ticket.getCreatedAt() : LocalDateTime.now())
+                .build();
     }
 
     // Dipakai saat panitia me-scan QR Code di venue (ticketCode berupa UUID ticketItemId)
