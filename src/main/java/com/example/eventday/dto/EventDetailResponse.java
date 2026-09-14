@@ -28,7 +28,7 @@ public class EventDetailResponse {
     private String image;
     private String status;
     private String statusLabel;
-    private List<String> facilities;
+    private String facilities;
     private List<LineupItem> lineup;
     private List<TicketItem> tickets;
 

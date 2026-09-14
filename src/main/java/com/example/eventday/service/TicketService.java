@@ -14,6 +14,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class TicketService {
 
     private final TicketItemRepository ticketItemRepository;

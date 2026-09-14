@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+
 @SuppressWarnings("null")
 @Service
 @RequiredArgsConstructor
@@ -43,7 +44,7 @@ public class EventService {
     );
 
     public EventCatalogResponse getEvents(String category, String search, String location,
-                                           int page, int size, String sort) {
+                                          int page, int size, String sort) {
         Sort springSort = parseSort(sort);
         Pageable pageable = PageRequest.of(page, size, springSort);
 
@@ -94,7 +95,8 @@ public class EventService {
                 .map(this::toTicketItem)
                 .collect(Collectors.toList());
 
-        List<String> facilities = parseFacilities(event.getFacility());
+        // Mengambil teks paragraf langsung dari entity Event
+        String facilities = event.getFacility();
 
         List<EventDetailResponse.LineupItem> lineup = List.of(
                 EventDetailResponse.LineupItem.builder().name("Bintang Tamu").image("").build(),
@@ -160,16 +162,6 @@ public class EventService {
                 .map(TicketTier::getPrice)
                 .min(BigDecimal::compareTo)
                 .orElse(BigDecimal.ZERO);
-    }
-
-    private List<String> parseFacilities(String facility) {
-        if (facility == null || facility.isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(facility.split("[,;\\n]"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
     }
 
     private String formatPrice(BigDecimal price) {

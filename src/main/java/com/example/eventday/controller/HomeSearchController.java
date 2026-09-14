@@ -20,6 +20,7 @@ import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class HomeSearchController {
 
     private final HomeSearchService homeSearchService;

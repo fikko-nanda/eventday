@@ -20,6 +20,7 @@ public class EmailService {
     @Value("${app.mail.from-name:Eventday}")
     private String fromName;
 
+    // 1. Kirim OTP Verifikasi Pendaftaran
     public void sendOtpEmail(String to, String otpCode) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
@@ -34,6 +35,7 @@ public class EmailService {
         }
     }
 
+    // 2. Kirim Kode Reset Password (Lupa Password)
     public void sendResetPasswordEmail(String to, String code) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
@@ -45,6 +47,39 @@ public class EmailService {
             log.info("Reset password email sent to {}", to);
         } catch (Exception e) {
             log.warn("Gagal kirim reset password email ke {}: {} | Code: {}", to, e.getMessage(), code);
+        }
+    }
+
+    // 3. Notifikasi Sukses Ganti Password Mandiri
+    public void sendPasswordChangedNotification(String to) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(from);
+            message.setTo(to);
+            message.setSubject("Eventday - Keamanan Akun: Password Berhasil Diubah");
+            message.setText("Halo,\n\nPassword akun Eventday Anda baru saja berhasil diubah.\n\nJika Anda tidak melakukan perubahan ini, segera hubungi admin atau lakukan reset password.\n\nTerima kasih,\n" + fromName);
+            mailSender.send(message);
+            log.info("Password changed notification sent to {}", to);
+        } catch (Exception e) {
+            log.warn("Gagal kirim notifikasi password changed ke {}: {}", to, e.getMessage());
+        }
+    }
+
+    // 4. Notifikasi Konfirmasi Pembayaran & E-Ticket
+    public void sendOrderConfirmationEmail(String to, String orderNumber, String eventTitle, int qty) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(from);
+            message.setTo(to);
+            message.setSubject("Eventday - Konfirmasi Pembayaran & E-Ticket: " + orderNumber);
+            message.setText("Halo,\n\nPembayaran untuk pesanan " + orderNumber + " telah berhasil diverifikasi!\n\nDetail Pesanan:\n"
+                    + "Event: " + eventTitle + "\n"
+                    + "Jumlah Tiket: " + qty + "\n\n"
+                    + "E-ticket Anda sudah terbit dan dapat dilihat pada menu 'My Tickets' di aplikasi Eventday.\n\nTerima kasih,\n" + fromName);
+            mailSender.send(message);
+            log.info("Order confirmation email sent to {}", to);
+        } catch (Exception e) {
+            log.warn("Gagal kirim order confirmation email ke {}: {}", to, e.getMessage());
         }
     }
 }

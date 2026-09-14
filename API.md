@@ -3,8 +3,8 @@
 Base URL (lokal): `http://localhost:8082`
 Base URL (ngrok lintas-laptop): `https://<id-baru>.ngrok-free.app` → `ngrok http 8082`
 
-> **Status 2026-09-10 (rev.2):** Modul **Auth** aktif + **Customer Event Catalog** aktif (port 8082, wrapper `{msg,status,data}` `ApiResponse` konsisten). Fix CORS `CorsConfigurationSource` + `ApiLoggingFilter` warna — `API.md` & `AGENTS.md` sinkron `application.properties` (port 8082).
-> **Last Updated:** 2026-09-10 (rev.2) — sinkron dengan `application.properties` (port 8082), `EventController.java`, `EventService.java`, `CorsConfig.java` (`CorsConfigurationSource` `*` untuk ngrok), `ApiResponse.java` helper `created/ok/badRequest`, `ApiLoggingFilter.java` warna.
+> **Status 2026-09-14 (rev.6):** PR #10 (HEAD) **rampungkan Checkout** — `attendees` tersimpan real ke `order_attendees`, tambah `POST /checkout/calculation` (tax 10%) + `POST /checkout/process` (→ `WAITING_PAYMENT`) + `GET /orders/status` (polling). `SecurityConfig` kini **SUDAH di-commit**: `/api/v1/events/**` + `/api/v1/terms-conditions` + `/api/v1/privacy-policy` publik. Modul aktif: Auth + Event Catalog + Home & Search (publik) + Checkout (8 endpoint) + Payment + Ticket.
+> **Last Updated:** 2026-09-14 — sinkron PR #10 (`calculation`/`process`/`orders/status` + attendees real), `SecurityConfig` committed, DB lokal `localhost:5432/eventday`.
 > **ngrok:** URL `9538-2400-...ngrok-free.app` di screenshot sudah expired. Jalankan `ngrok http 8082` di laptop backend, copy URL baru, ganti `BASE` di frontend. `localhost:8082` hanya untuk 1 laptop.
 > **Response Standard:** Semua API pakai `ApiResponse.java` `{msg, status, data}` `@JsonInclude ALWAYS` — helper `created(201)/ok(200)/badRequest(400)/unauthorized(401)/forbidden(403)/notFound(404)/internalError(500)`. `SecurityConfig.java` + `GlobalExceptionHandler.java` juga pakai `ApiResponse`.
 
@@ -34,15 +34,58 @@ Base URL (ngrok lintas-laptop): `https://<id-baru>.ngrok-free.app` → `ngrok ht
 Alias legacy `POST /api/auth/**` juga permit.
 
 > **⚠️ Troubleshooting 401 vs CORS (kasus screenshot `/register` → 401):**
-> Network `register` → `401 Unauthorized` + `Access-Control-Allow-Origin: http://localhost:5173` + `Access-Control-Allow-Credentials: true` = **CORS sudah benar** (`CorsConfig.java:16` + `SecurityConfig.java:38` `.cors(cors->{})`). 401 terjadi karena frontend nembak `https://xxx.ngrok-free.app/register` (tanpa prefix), sedangkan `SecurityConfig.java:56` hanya `permitAll` untuk `/api/v1/auth/**` dan `/api/auth/**`. Fix: `BASE` harus `https://xxx.ngrok-free.app/api/v1/auth` sehingga request jadi `POST /api/v1/auth/register` → `201`. Jangan pakai `BASE` tanpa suffix `/api/v1/auth`.
+> Network `register` → `401 Unauthorized` + `Access-Control-Allow-Origin: http://localhost:5173` + `Access-Control-Allow-Credentials: true` = **CORS sudah benar** (`CorsConfig.java:14` `CorsFilter` bean + `SecurityConfig.java:38` `.cors(cors->{})`). 401 terjadi karena frontend nembak `https://xxx.ngrok-free.app/register` (tanpa prefix), sedangkan `SecurityConfig.java:55` hanya `permitAll` untuk `/api/v1/auth/**` dan `/api/auth/**`. Fix: `BASE` harus `https://xxx.ngrok-free.app/api/v1/auth` sehingga request jadi `POST /api/v1/auth/register` → `201`. Jangan pakai `BASE` tanpa suffix `/api/v1/auth`.
 
-## Daftar Endpoint Customer (Protected - JWT)
+## Daftar Endpoint Customer (Publik — lihat catatan SecurityConfig)
 
 | # | Method | Endpoint | Deskripsi | HTTP |
 |---|--------|----------|-----------|------|
 | 7 | GET | `/api/v1/events` | List event + filter category/search/location + pagination | `200` |
 | 8 | GET | `/api/v1/events/featured` | Event unggulan untuk hero slider (max 3) | `200` |
 | 9 | GET | `/api/v1/events/{id}` | Detail event + lineup + tiket | `200` / `404` |
+
+> \*SUDAH COMMITTED di HEAD: `SecurityConfig.java:67` `/api/v1/events/**` permitAll (juga `:70` `/api/v1/terms-conditions` + `/api/v1/privacy-policy`). Akses publik tanpa Bearer — bisa dibuka via browser/curl.
+
+## Daftar Endpoint Home & Search (Public — tanpa JWT)
+
+| # | Method | Endpoint | Deskripsi | HTTP |
+|---|--------|----------|-----------|------|
+| 10 | GET | `/api/v1/home/hero-banner` | Banner promo/sorotan utama (max 5 featured) | `200` |
+| 11 | GET | `/api/v1/home/event-card` | Daftar card event aktif + pagination `?page&size` | `200` |
+| 12 | GET | `/api/v1/home/locations` | Daftar kota/lokasi unik (filter) | `200` |
+| 13 | GET | `/api/v1/search/results` | Pencarian multi-filter `?keyword&category&location&date&page&size&sort` | `200` |
+| 14 | GET | `/api/v1/search/locations` | Daftar lokasi unik untuk filter search | `200` |
+| 15 | GET | `/api/v1/search/categories` | Daftar kategori unik untuk filter search | `200` |
+
+> `SecurityConfig.java` `permitAll` untuk `/api/v1/home/**` + `/api/v1/search/**` — bisa dibuka via browser/curl tanpa token. Data kosong → `data:[]` / `content:[]`, bukan error.
+
+## Daftar Endpoint Checkout/Order (perlu login — PR #9 + PR #10)
+
+| # | Method | Endpoint | Deskripsi | HTTP |
+|---|--------|----------|-----------|------|
+| 16 | POST | `/api/v1/checkout/initiate` | Buat order `{tierId,quantity}` → `PENDING` + expired 15 mnt | `200` |
+| 17 | POST | `/api/v1/checkout/attendees` | Simpan peserta ke `order_attendees` (PR #10, bukan stub lagi) | `200` |
+| 18 | POST | `/api/v1/checkout/calculation` | Hitung rincian — subtotal + adminFee + tax 10% − discount (PR #10) | `200` |
+| 19 | POST | `/api/v1/checkout/process` | Ubah status order → `WAITING_PAYMENT` (PR #10) | `200` |
+| 20 | GET | `/api/v1/orders/status?orderId=` | Polling status order (PR #10) | `200` |
+| 21 | GET | `/api/v1/checkout/summary?orderId=` | Ringkasan tagihan | `200` |
+| 22 | GET | `/api/v1/orders/{orderId}/total-amount` | Total nominal | `200` |
+| 23 | GET | `/api/v1/orders/{orderId}/expired-time` | Batas waktu bayar | `200` |
+
+## Daftar Endpoint Payment (perlu login — mock VA, PR #9)
+
+| # | Method | Endpoint | Deskripsi | HTTP |
+|---|--------|----------|-----------|------|
+| 24 | GET | `/api/v1/payments/methods` | `VIRTUAL_ACCOUNT,E_WALLET,CREDIT_CARD` | `200` |
+| 25 | GET | `/api/v1/payments/methods/virtual-account` | Channel BCA/MANDIRI/BRI | `200` |
+| 26 | POST | `/api/v1/payments/charge` | `{orderId,paymentMethod,bankCode}` → VA `88325...`, status `WAITING_PAYMENT` | `200` |
+
+## Daftar Endpoint Ticket (perlu login — PR #9, base TANPA /v1)
+
+| # | Method | Endpoint | Deskripsi | HTTP |
+|---|--------|----------|-----------|------|
+| 27 | GET | `/api/tickets/user/{email}` | Tiket milik user (kosong sampai tiket diterbitkan) | `200` |
+| 28 | POST | `/api/tickets/scan` | Scan QR `{ticketCode: "<UUID>"}` → `TIKET_VALID`/`TIKET_SUDAH_DIPAKAI` | `200`/`400` |
 
 ---
 
@@ -281,9 +324,9 @@ curl -X POST localhost:8082/api/v1/auth/reset-password -H "Content-Type: applica
 
 ## 7. Middleware JWT & Protected Routes
 
-Semua selain `/api/v1/auth/**` butuh JWT. `SecurityConfig.java:31` `STATELESS`.
+Publik (tanpa JWT): `/api/v1/auth/**`, `/api/v1/home/**`, `/api/v1/search/**`, `/api/v1/events/**`, `/api/v1/terms-conditions`, `/api/v1/privacy-policy`, `/`, `/error` — **semua SUDAH di-commit** di `SecurityConfig.java:55-73`. Sisanya (Checkout, Payment, Ticket, dst) butuh JWT. `SecurityConfig.java:40` `STATELESS`.
 
-`JwtAuthenticationFilter.java:23`: `Authorization: Bearer <token>` → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`.
+`JwtAuthenticationFilter.java:36`: `Authorization: Bearer <token>` **atau** `Cookie: access_token` (`resolveToken()`) → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`.
 
 `SecurityConfig.java` kini return standard `msg/status/data` untuk `401/403`:
 
@@ -297,8 +340,9 @@ Semua selain `/api/v1/auth/**` butuh JWT. `SecurityConfig.java:31` `STATELESS`.
 ```bash
 curl -c cookies.txt -X POST localhost:8082/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"john@mail.com","password":"123456"}'
 curl -b cookies.txt localhost:8082/api/v1/events  # 200 jika ada data PUBLISHED
-curl localhost:8082/api/v1/events  # -> 401 {msg, status:401}
+curl localhost:8082/api/v1/events  # -> 200 juga (PUBLIK — SecurityConfig events/** COMMITTED)
 curl localhost:8082/ # -> 200 {msg, status:200, data:"OK"}
+curl localhost:8082/api/v1/checkout/summary?orderId=xxx  # -> 401 {msg, status:401} (perlu login)
 # Alternatif manual: curl -H "Authorization: Bearer <token-dari-DB>" localhost:8082/api/v1/events
 ```
 
@@ -315,7 +359,7 @@ google.client-id=875040780549-1jq8bicaq1ne1ltjt7bfjcfjo82e5dj0.apps.googleuserco
 
 ### GET `/api/v1/events` — List event untuk `CustomerDashboard.jsx`
 
-**Auth:** `Bearer` required. Role `CUSTOMER` / `ORGANIZER` / `ADMIN` boleh akses.
+**Auth:** **publik** — `SecurityConfig.java:67` sudah di-commit (`/api/v1/events/**` permitAll), boleh akses tanpa token (browser/curl). Role `CUSTOMER` / `ORGANIZER` / `ADMIN` tetap boleh akses via Bearer/Cookie.
 
 **Query Params (semua opsional):**
 
@@ -386,7 +430,7 @@ curl -H "Authorization: Bearer $TOKEN" "localhost:8082/api/v1/events?category=MU
 
 ### GET `/api/v1/events/{id}` — Detail `DetailEventCustomer.jsx`
 
-**Auth:** `Bearer`
+**Auth:** **publik** — sudah di-commit di `SecurityConfig.java:67` (`/api/v1/events/**` permitAll), bisa diakses tanpa token.
 
 **Path:** `id` UUID event.
 
@@ -457,15 +501,127 @@ curl -b cookies.txt localhost:8082/api/v1/events/{uuid}
 
 ---
 
+## 10. Home & Search — Hero, Event Card, Locations
+
+### GET `/api/v1/home/hero-banner` — Public, tanpa token
+Ambil max 5 event `isFeatured=true` + `status=PUBLISHED` (`HomeSearchService.getHeroBanners()`).
+```json
+{"msg":"Berhasil mengambil hero banner","status":200,"data":[{"id":"uuid","title":"Neon Nights","bannerUrl":"https://...","eventDate":"2026-12-15T19:00:00","targetUrl":"/events/uuid"}]}
+```
+DB kosong → `{"msg":"...","status":200,"data":[]}`.
+
+### GET `/api/v1/home/event-card?page=0&size=12` — Public
+Card event aktif paginated. `size` = **jumlah data per halaman** (bukan ukuran CSS).
+```json
+{"msg":"Berhasil mengambil event card","status":200,"data":{"content":[{"id":"uuid","title":"Neon Nights","posterUrl":"https://...","location":"GBK","category":"MUSIC_FESTIVAL","categoryLabel":"Musik","startDate":"2026-12-15T19:00:00","dateDisplay":"15 Dec 2026","lowestPrice":200000,"priceDisplay":"Rp 200.000"}],"page":0,"size":12,"totalElements":42,"totalPages":4}}
+```
+`lowestPrice` = harga min dari `ticket_tiers`, fallback `0` jika belum ada tier.
+
+### GET `/api/v1/home/locations` — Public
+```json
+{"msg":"Berhasil mengambil daftar lokasi","status":200,"data":["Jakarta","Bandung"]}
+```
+Query: `SELECT DISTINCT e.venueName ... WHERE status='PUBLISHED'` (`EventRepository.findDistinctLocations()`). Kosong → `[]`.
+
+```bash
+curl "localhost:8082/api/v1/home/hero-banner"
+curl "localhost:8082/api/v1/home/event-card?page=0&size=12"
+curl "localhost:8082/api/v1/home/locations"
+# atau buka langsung di browser (GET publik, tanpa token)
+```
+
+---
+
+## 11. Search — Results, Locations, Categories
+
+### GET `/api/v1/search/results` — Public
+| Param | Deskripsi | Contoh |
+|---|---|---|
+| `keyword` | cari di title/description/venue (case-insensitive) | `?keyword=neon` |
+| `category` | `MUSIC_FESTIVAL`/`CONFERENCE`/`EXHIBITION`/`CULINARY`, `Semua`/`ALL` = tanpa filter | `?category=MUSIC_FESTIVAL` |
+| `location` | partial match venue | `?location=Jakarta` |
+| `date` | format `YYYY-MM-DD`, cocok `CAST(startDate AS date)` | `?date=2026-12-15` |
+| `page`/`size`/`sort` | pagination, `sort=latest` (default), `date_asc`, `price_asc/desc` | `?page=0&size=12&sort=latest` |
+
+Response sama shape dengan event-card (`{content,page,size,totalElements,totalPages}`).
+
+### GET `/api/v1/search/locations` — Public → `[string]` lokasi unik
+### GET `/api/v1/search/categories` — Public → `[string]` kategori unik (`SELECT DISTINCT e.category ... PUBLISHED`)
+
+```bash
+curl "localhost:8082/api/v1/search/results?keyword=neon&category=MUSIC_FESTIVAL&location=Jakarta&page=0&size=12&sort=latest"
+curl "localhost:8082/api/v1/search/results?date=2026-12-15"
+curl "localhost:8082/api/v1/search/locations"
+curl "localhost:8082/api/v1/search/categories"
+```
+
+---
+
+## 12. Checkout & Order (perlu login)
+
+### POST `/api/v1/checkout/initiate` — body `{tierId, quantity}`
+`OrderService.createOrder`: cek `availableQuota` (tidak dikurangi!) → `subtotal = price×qty`, `total = subtotal + adminFee(5000)` → save `Order(PENDING, expiredAt +15mnt)`. Return entity `Order` langsung.
+```bash
+curl -b cookies.txt -X POST localhost:8082/api/v1/checkout/initiate -H "Content-Type: application/json" -d '{"tierId":"<tier-uuid>","quantity":2}'
+```
+
+### POST `/api/v1/checkout/attendees` — simpan peserta (PR #10, bukan stub lagi)
+Body:
+```json
+{"orderId":"<order-uuid>","attendees":[{"fullName":"Budi","email":"budi@mail.com","phoneNumber":"08123456","identityNumber":"3201234567890123"}]}
+```
+Simpan ke tabel `order_attendees` (`model/Attendee`, PK Long IDENTITY) — `identityNumber` = NIK/No. KTP, `orderId` plain String (bukan FK/UUID). Respons `data` = `[{id, orderId, fullName, email, phoneNumber, identityNumber}]`.
+
+### POST `/api/v1/checkout/calculation` — hitung rincian (PR #10, TIDAK menyimpan order)
+Body `{tierId, quantity, discountAmount?}` → `data`:
+```json
+{"msg":"Kalkulasi checkout berhasil","status":200,"data":{"subtotal":400000,"adminFee":5000,"tax":40000,"discount":0,"totalAmount":445000}}
+```
+`tax` = `subtotal × 10%`, `totalAmount = subtotal + adminFee + tax − discount`.
+
+### POST `/api/v1/checkout/process` — kunci order (PR #10)
+Body `{orderId}` → status order jadi `WAITING_PAYMENT` (TIDAK cek `PENDING` dulu — beda dengan `/payments/charge` yang wajib PENDING). Return entity `Order`.
+
+### GET `/api/v1/orders/status?orderId=<uuid>` — polling (PR #10)
+`data` = `{"orderId":"<uuid>","status":"WAITING_PAYMENT"}`.
+
+### GET `/api/v1/checkout/summary?orderId=<uuid>` → `CheckoutSummaryResponse`
+`{orderId, orderNumber("ORD-XXXXXXXX"), eventTitle, ticketTierName, quantity, pricePerTicket, subtotal, adminFee, discountAmount(0), totalAmount, expiredAt}`.
+### GET `/api/v1/orders/{id}/total-amount` → `{totalAmount}` · GET `/api/v1/orders/{id}/expired-time` → `{expiredAt}`
+
+---
+
+## 13. Payment — mock Virtual Account (perlu login, bukan gateway asli)
+
+```bash
+curl -b cookies.txt localhost:8082/api/v1/payments/methods
+curl -b cookies.txt localhost:8082/api/v1/payments/methods/virtual-account
+curl -b cookies.txt -X POST localhost:8082/api/v1/payments/charge -H "Content-Type: application/json" -d '{"orderId":"<order-uuid>","paymentMethod":"VIRTUAL_ACCOUNT","bankCode":"BCA"}'
+# → {"orderNumber":"ORD-...","virtualAccountNumber":"88325...","expiredAt":"..."} + order.status = WAITING_PAYMENT
+```
+Syarat: order masih `PENDING`, sekali charge saja.
+
+---
+
+## 14. Ticket — My Tickets & Scan (perlu login, base `/api/tickets` TANPA `/v1`)
+
+```bash
+curl -b cookies.txt localhost:8082/api/tickets/user/john@mail.com   # [] sampai generateTicket() dipanggil (saat ini tak ada alur yang memanggil!)
+curl -b cookies.txt -X POST localhost:8082/api/tickets/scan -H "Content-Type: application/json" -d '{"ticketCode":"<ticketItem-uuid>"}'
+# → TIKET_VALID (set CHECKED_IN+checkInAt) / TIKET_SUDAH_DIPAKAI / 400 format tak valid
+```
+
+---
+
 ## ⏳ Modul Lain — SCHEMA ONLY (belum aktif)
 
 | Modul | Rencana Endpoint | Status | HTTP |
 |---|---|---|---|
-| Orders | `POST /api/v1/orders` | Spek siap | `401` tanpa token |
-| Payments | `POST /api/v1/payments/pay/{orderId}` | Spek siap | `401` |
-| Tickets | `POST /api/v1/tickets/scan/{ticketItemId}` | DB ready | `401/403` |
 | Refunds | `POST /api/v1/refunds` | Spek siap | `401/403` |
 | Settings | `GET/PUT /api/v1/settings/**` | DB ready | `401/403` |
+| Organizer | register/dashboard/status | DB ready, belum ada service | `401/403/404` |
+| User/Profile | profile/transactions/avatar | Belum ada | `404` |
+| Legal | `GET /api/v1/terms-conditions`, `/api/v1/privacy-policy` | permitAll tapi controller BELUM ADA | `404` |
 | Audit | `GET /api/v1/audit/**` | hanya log internal | `401/403` |
 
 `RescheduleRequest` **dihapus** — jangan panggil.
@@ -474,14 +630,14 @@ curl -b cookies.txt localhost:8082/api/v1/events/{uuid}
 
 ## Error Format Global (sudah rapi — ApiResponse konsisten)
 
-`dto/ApiResponse.java:9` `@JsonInclude ALWAYS` + `GlobalExceptionHandler.java:10` + `SecurityConfig.java:42` — semua return `{msg,status,data}` via helper:
+`dto/ApiResponse.java:19` `@JsonInclude ALWAYS` + `GlobalExceptionHandler.java:14` + `SecurityConfig.java:42` — semua return `{msg,status,data}` via helper:
 
 *   Validasi `@Valid` → `ApiResponse.badRequest` `400` `{"msg":"username: Username 3-20 karakter","status":400,"data":null}`
 *   `RuntimeException` → `badRequest` `400`
 *   `AuthenticationException` → `unauthorized` `401`
 *   `AccessDeniedException` → `forbidden` `403`
 *   `Exception` → `internalError` `500`
-*   Sukses → `ok(200)` / `created(201)` (register/google baru) — `AuthController.java:27` `created`, `EventController.java:20` `ok`/`notFound(404)`, `HomeController.java:10` `ok("Eventday API Server is Running!","OK")`
+*   Sukses → `ok(200)` / `created(201)` (register/google baru) — `AuthController.java` `created`, `EventController.java` `ok`/`notFound(404)`, `HomeSearchController.java` `ok` (6 endpoint home/search), `HomeController.java:10` `ok("Eventday API Server is Running!","OK")`
 
 Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk branching, `data` untuk payload.
 
@@ -493,7 +649,7 @@ Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk b
 *   `Auth.status`: `INACTIVE` / `ACTIVE`
 *   `events.status`: `DRAFT` / `PUBLISHED` / `CANCELLED` / `COMPLETED` (tampilkan `AVAILABLE` di API sebagai alias `PUBLISHED`)
 *   `events.category`: `MUSIC_FESTIVAL` / `CONFERENCE` / `EXHIBITION` / `CULINARY` (API kirim display label)
-*   `orders.status`: `PENDING` / `PAID` / `EXPIRED` / `CANCELLED`
+*   `orders.status`: `PENDING` / `WAITING_PAYMENT` (mock VA PR #9) / `PAID` / `EXPIRED` / `CANCELLED`
 *   `ticket_items.status`: `UNREDEEMED` / `REDEEMED` / `EXPIRED`
 *   `refund_requests.status`: `PENDING` / `APPROVED` / `REJECTED`
 *   Lain schema-only: `organizers.verification_status UNVERIFIED`, `bookings PENDING`
@@ -513,6 +669,24 @@ CUSTOMER FLOW (setelah login, Bearer token):
   GET /events?category=&search=  --> CustomerDashboard grid + hero
   GET /events/featured            --> Hero slider (3 event)
   GET /events/{id}               --> DetailEventCustomer (pilih qty + ticketType)
+
+CHECKOUT FLOW (setelah login):
+  POST /checkout/initiate {tierId,quantity} --> Order PENDING + expiredAt
+  POST /checkout/attendees {orderId,attendees[]} --> simpan order_attendees (PR #10)
+  POST /checkout/calculation {tierId,quantity} --> subtotal+adminFee+tax10% (opsional, tidak simpan)
+  POST /checkout/process {orderId}          --> status WAITING_PAYMENT (PR #10)
+  POST /payments/charge {orderId,VIRTUAL_ACCOUNT,BCA} --> VA 88325... + WAITING_PAYMENT
+  GET /orders/status?orderId=               --> polling status (PR #10)
+  GET /checkout/summary?orderId=            --> ringkasan tagihan
+  GET /tickets/user/{email}                 --> [] sampai tiket diterbitkan
+  POST /tickets/scan {ticketCode}           --> TIKET_VALID / TIKET_SUDAH_DIPAKAI
+
+HOME & SEARCH FLOW (publik, tanpa token):
+  GET /home/hero-banner           --> banner promo (max 5 featured)
+  GET /home/event-card?page&size  --> grid homepage (size = jumlah data/halaman, bukan CSS)
+  GET /home/locations             --> dropdown kota
+  GET /search/results?keyword&category&location&date&page&size&sort --> hasil pencarian
+  GET /search/locations|/search/categories --> opsi filter search
 ```
 
 DB: `users --1:1-- auth (hash+googleId+token+resetToken) --1:N-- otp` (`password_reset_tokens` dihapus, digabung ke `auth`)
@@ -524,7 +698,7 @@ DB: `users --1:1-- auth (hash+googleId+token+resetToken) --1:N-- otp` (`password
 **Base URL (wajib lengkap dengan prefix `/api/v1/auth`):**
 - Lokal (1 laptop): `http://localhost:8082/api/v1/auth`
 - Lintas laptop (ngrok): `https://<id-baru>.ngrok-free.app/api/v1/auth` dari `ngrok http 8082` — ganti tiap restart ngrok. Jangan pakai `9538-...` (expired) atau `127.0.0.1:8000` (Django).
-- **Contoh salah → 401:** `BASE = 'https://xxx.ngrok-free.app'` lalu `fetch(BASE + '/register')` → request ke `/register` (tidak ada di `SecurityConfig.java:56`) → `401`. **Benar:** `BASE = 'https://xxx.ngrok-free.app/api/v1/auth'` lalu `fetch(BASE + '/register')` → `POST /api/v1/auth/register` → `201`.
+- **Contoh salah → 401:** `BASE = 'https://xxx.ngrok-free.app'` lalu `fetch(BASE + '/register')` → request ke `/register` (tidak ada di `SecurityConfig.java:55`) → `401`. **Benar:** `BASE = 'https://xxx.ngrok-free.app/api/v1/auth'` lalu `fetch(BASE + '/register')` → `POST /api/v1/auth/register` → `201`.
 
 ```js
 // helper standar — token via HttpOnly Cookie, JANGAN pakai getApiBase
@@ -565,6 +739,23 @@ const login = await apiAuth('/login', {identifier: email, password}); // {msg,st
 export const getEvents = (params={}) => apiGet(`/events?${new URLSearchParams(params)}`); // → data.content
 export const getFeaturedEvents = () => apiGet('/events/featured');
 export const getEventDetail = (id) => apiGet(`/events/${id}`);
+
+// contoh home & search — publik, tanpa token (bisa tanpa credentials:include)
+export const getHeroBanner = () => apiGet('/home/hero-banner'); // → data[]
+export const getEventCards = (page=0,size=12) => apiGet(`/home/event-card?page=${page}&size=${size}`); // → data.content
+export const getLocations = () => apiGet('/home/locations'); // → data[]
+export const searchEvents = (p={}) => apiGet(`/search/results?${new URLSearchParams(p)}`); // keyword,category,location,date,page,size,sort
+export const getSearchCategories = () => apiGet('/search/categories');
+
+// contoh checkout & payment — perlu login (credentials:include), base /api/v1
+export const initiateCheckout = (tierId,quantity) => fetch(`${BASE_API}/checkout/initiate`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({tierId,quantity})}).then(r=>r.json());
+export const saveAttendees = (orderId,attendees) => fetch(`${BASE_API}/checkout/attendees`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId,attendees})}).then(r=>r.json()); // attendees:[{fullName,email,phoneNumber,identityNumber}] → order_attendees
+export const calcCheckout = (tierId,quantity,discountAmount=0) => fetch(`${BASE_API}/checkout/calculation`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({tierId,quantity,discountAmount})}).then(r=>r.json()); // data:{subtotal,adminFee,tax,discount,totalAmount}
+export const processCheckout = (orderId) => fetch(`${BASE_API}/checkout/process`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId})}).then(r=>r.json()); // → WAITING_PAYMENT
+export const getOrderStatus = (orderId) => apiGet(`/orders/status?orderId=${orderId}`); // polling → data.status
+export const getSummary = (orderId) => apiGet(`/checkout/summary?orderId=${orderId}`);
+export const chargeVA = (orderId,bankCode='BCA') => fetch(`${BASE_API}/payments/charge`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId,paymentMethod:'VIRTUAL_ACCOUNT',bankCode})}).then(r=>r.json());
+// ticket (base TANPA /v1!): GET /api/tickets/user/{email}, POST /api/tickets/scan {ticketCode}
 ```
 
 1. Base `http://localhost:8082`, `Content-Type: application/json`, `credentials:'include'` selalu.
@@ -572,10 +763,11 @@ export const getEventDetail = (id) => apiGet(`/events/${id}`);
 3. Register `201` `ApiResponse.created` → langsung ke form OTP.
 4. Login `200` `ApiResponse.ok` → `data.expiresIn` + `Set-Cookie access_token` (tidak ada `data.token`).
 5. Tanpa cookie → `401` `unauthorized` / `403` `forbidden` `{msg,status}` — redirect ke login.
-6. `CorsConfig.java:10` `CorsConfigurationSource` `*` `allowCredentials true` `exposedHeaders Set-Cookie,Authorization` `maxAge 3600` — aman untuk ngrok.
+6. `CorsConfig.java:14` `CorsFilter` bean `allowedOriginPatterns "*"` `allowCredentials true` `exposedHeaders Authorization,Content-Type` `maxAge 3600` — aman untuk ngrok.
 7. OTP `5 menit`, Reset code `15 menit`, JWT `24 jam`.
-8. `ApiLoggingFilter.java:10` warna `┌─ ▶ [reqId] METHOD URI | └─ ✅/⚠/❌ status → duration auth ip (slow >1s)` + console `%clr %highlight`.
-9. Customer events paginated `?page&size` — default `page 0 size 12`.
+8. `ApiLoggingFilter.java` format ASCII `[IN] [reqId] METHOD URI | IP | UA` → `[OUT] ... -> status (duration) user/auth/ip` + `[SLOW!]` jika >1s (tanpa warna/box-drawing) + console `%d %5p [%t] %logger : %m%n`.
+9. Customer events paginated `?page&size` — default `page 0 size 12`. `size` = jumlah data/halaman, bukan ukuran CSS.
 10. Harga number IDR, format `Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR"})`.
+11. Home & search publik tanpa token — bisa dites via browser/curl/`test-modul1.http`. `date` format `YYYY-MM-DD`.
 ```
 
