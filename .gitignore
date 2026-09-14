@@ -33,3 +33,5 @@ build/
 .vscode/
 logs/
 *.log
+
+echo "cookies.txt" >> .gitignore

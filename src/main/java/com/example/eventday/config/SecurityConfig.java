@@ -53,14 +53,23 @@ public class SecurityConfig {
                 })
             )
             .authorizeHttpRequests(auth -> auth
-                // Perbaikan: tambahkan "/" dan "/error" agar browser tidak memunculkan 403 saat akses ngrok root
+                // Root & error ngrok
                 .requestMatchers("/", "/error").permitAll()
-                .requestMatchers("/api/v1/auth/**").permitAll()
-                // MODUL 01: Home & Search publik sesuai PDF v1.3.0
+
+                // Modul Auth (Login, Register, OTP, Google)
+                .requestMatchers("/api/v1/auth/**", "/api/auth/**").permitAll()
+
+                // Modul 01: Home & Search (Publik)
                 .requestMatchers("/api/v1/home/**").permitAll()
                 .requestMatchers("/api/v1/search/**").permitAll()
-                // backward compat lama
-                .requestMatchers("/api/auth/**").permitAll()
+
+                // Modul 02: Katalog Event Publik
+                .requestMatchers("/api/v1/events/**").permitAll()
+
+                // Modul Legal & Informasi Statis (Publik)
+                .requestMatchers("/api/v1/terms-conditions", "/api/v1/privacy-policy").permitAll()
+
+                // Semua endpoint lain (Checkout, Payment, My Tickets, Profile, Organizer) wajib login
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
