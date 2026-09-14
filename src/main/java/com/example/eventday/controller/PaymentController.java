@@ -1,39 +1,47 @@
 package com.example.eventday.controller;
 
-import com.example.eventday.dto.*;
-import com.example.eventday.service.PaymentService;
+import com.example.eventday.dto.ApiResponse;
+import com.example.eventday.service.MidtransService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.math.BigDecimal;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/payments")
+@RequestMapping("/api/payments")
 @RequiredArgsConstructor
 public class PaymentController {
 
-    private final PaymentService paymentService;
-
-    @GetMapping("/methods")
-    public ResponseEntity<ApiResponse<List<String>>> getPaymentMethods() {
-        return ResponseEntity.ok(ApiResponse.success("Metode pembayaran", List.of("VIRTUAL_ACCOUNT", "E_WALLET", "CREDIT_CARD")));
-    }
-
-    @GetMapping("/methods/virtual-account")
-    public ResponseEntity<ApiResponse<List<Map<String, String>>>> getVaChannels() {
-        List<Map<String, String>> channels = List.of(
-                Map.of("code", "BCA", "name", "BCA Virtual Account"),
-                Map.of("code", "MANDIRI", "name", "Mandiri Bill Payment"),
-                Map.of("code", "BRI", "name", "BRI Virtual Account")
-        );
-        return ResponseEntity.ok(ApiResponse.success("Daftar channel VA", channels));
-    }
+    private final MidtransService midtransService;
 
     @PostMapping("/charge")
-    public ResponseEntity<ApiResponse<PaymentChargeResponse>> chargePayment(@RequestBody PaymentChargeRequest request) {
-        PaymentChargeResponse chargeResponse = paymentService.processPaymentCharge(request);
-        return ResponseEntity.ok(ApiResponse.success("Tagihan pembayaran berhasil dibuat", chargeResponse));
+    public ResponseEntity<ApiResponse<Map<String, String>>> processPayment(@RequestBody Map<String, Object> request) {
+        String orderId = (String) request.get("orderId");
+        BigDecimal grossAmount = new BigDecimal(request.get("grossAmount").toString());
+        String customerName = (String) request.get("customerName");
+        String customerEmail = (String) request.get("customerEmail");
+
+        // Panggil Midtrans Snap Service
+        Map<String, String> midtransResponse = midtransService.createSnapTransaction(orderId, grossAmount, customerName, customerEmail);
+
+        return ResponseEntity.ok(ApiResponse.success("Snap Token berhasil dibuat", midtransResponse));
+    }
+
+    // Callback / Webhook Endpoint dari Midtrans ketika status pembayaran berubah
+    @PostMapping("/midtrans-notification")
+    public ResponseEntity<ApiResponse<String>> handleMidtransNotification(@RequestBody Map<String, Object> notification) {
+        String orderId = (String) notification.get("order_id");
+        String transactionStatus = (String) notification.get("transaction_status");
+
+        // Logic Update Status Order di DB berdasarkan callback Midtrans
+        if ("settlement".equals(transactionStatus) || "capture".equals(transactionStatus)) {
+            // Update order status -> PAID, lalu panggil ticketService.generateTicket(...)
+        } else if ("cancel".equals(transactionStatus) || "expire".equals(transactionStatus)) {
+            // Update order status -> EXPIRED/CANCELLED
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("Notifikasi Midtrans berhasil diproses", "OK"));
     }
 }
