@@ -67,13 +67,9 @@ public class AuthService {
             throw new RuntimeException("NIK sudah terdaftar!");
         }
 
-        User.Role roleEnum;
-        try {
-            String raw = request.getRole() != null ? request.getRole().toUpperCase() : "CUSTOMER";
-            roleEnum = User.Role.valueOf(raw);
-        } catch (IllegalArgumentException e) {
-            roleEnum = User.Role.CUSTOMER;
-        }
+        // Register publik selalu CUSTOMER — cegah eskalasi privilege via role=ADMIN/ORGANIZER.
+        // Akun ADMIN/ORGANIZER dibuat lewat jalur internal (DB/endpoint admin), bukan register publik.
+        User.Role roleEnum = User.Role.CUSTOMER;
 
         User user = User.builder()
                 .name(request.getName())
@@ -384,9 +380,11 @@ public class AuthService {
     @Transactional
     public void logout(UUID userId) {
         authRepository.findByUserUserId(userId).ifPresent(auth -> {
+            // Cukup null-kan token: JwtAuthenticationFilter menolak token yang
+            // tidak sama dengan auth.aksesToken, jadi token lama langsung mati.
+            // Status TIDAK diubah agar user tetap bisa login kembali.
             auth.setAksesToken(null);
             auth.setExpiredToken(null);
-            auth.setStatus("INACTIVE");
             auth.setUpdatedAt(LocalDateTime.now());
             authRepository.save(auth);
         });

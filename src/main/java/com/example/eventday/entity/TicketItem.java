@@ -1,5 +1,6 @@
 package com.example.eventday.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -9,6 +10,7 @@ import java.util.UUID;
 @Table(name = "ticket_items", indexes = {
     @Index(name = "idx_attendee_nik_tier", columnList = "attendee_nik, tier_id")
 })
+@JsonIgnoreProperties({"order", "tier"})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

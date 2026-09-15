@@ -18,5 +18,5 @@ public class Attendee {
     private String fullName;
     private String email;
     private String phoneNumber;
-    private String identityNumber; // NIK / No. KTP
+    private String identityNumber; 
 }

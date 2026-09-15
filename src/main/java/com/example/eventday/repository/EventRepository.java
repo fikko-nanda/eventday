@@ -54,4 +54,9 @@ public interface EventRepository extends JpaRepository<Event, UUID> {
             @Param("location") String location,
             @Param("date") java.time.LocalDate date,
             Pageable pageable);
+
+    // ===== MODUL SUPERADMIN: DASHBOARD =====
+    long countByStatus(String status);
+
+    List<Event> findTop5ByOrderByCreatedAtDesc();
 }

@@ -91,11 +91,12 @@ public class UserController {
         // Hapus HttpOnly cookie
         ResponseCookie cookie = ResponseCookie.from("access_token", "")
                 .httpOnly(true)
+                .secure(true)
                 .path("/")
                 .maxAge(0)
-                .sameSite("Lax")
+                .sameSite("None")
                 .build();
-        response.addHeader("Set-Cookie", cookie.toString());
+        response.addHeader("Set-Cookie", cookie.toString() + "; Partitioned");
 
         return ApiResponse.ok("Logout berhasil", null);
     }

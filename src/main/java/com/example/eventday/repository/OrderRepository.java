@@ -10,4 +10,7 @@ import java.util.UUID;
 @Repository
 public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Order> findByCustomerUserId(UUID customerId);
+
+    // ===== MODUL SUPERADMIN: DASHBOARD =====
+    List<Order> findTop10ByOrderByCreatedAtDesc();
 }

@@ -42,13 +42,13 @@ public class AuthController {
             AuthResponse data = authService.login(request);
             ResponseCookie cookie = ResponseCookie.from("access_token", data.getToken())
                     .httpOnly(true)
-                    .secure(false)
+                    .secure(true)
                     .path("/")
                     .maxAge(data.getExpiresIn())
-                    .sameSite("Lax")
+                    .sameSite("None")
                     .build();
             return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                    .header(HttpHeaders.SET_COOKIE, cookie.toString() + "; Partitioned")
                     .body(ApiResponse.ok(data.getMessage(), data));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
@@ -61,18 +61,18 @@ public class AuthController {
             AuthResponse data = authService.loginWithGoogle(request);
             ResponseCookie cookie = ResponseCookie.from("access_token", data.getToken())
                     .httpOnly(true)
-                    .secure(false)
+                    .secure(true)
                     .path("/")
                     .maxAge(data.getExpiresIn())
-                    .sameSite("Lax")
+                    .sameSite("None")
                     .build();
             if (data.getMessage().contains("Registrasi")) {
                 return ResponseEntity.status(HttpStatus.CREATED)
-                        .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                        .header(HttpHeaders.SET_COOKIE, cookie.toString() + "; Partitioned")
                         .body(ApiResponse.created(data.getMessage(), data));
             }
             return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                    .header(HttpHeaders.SET_COOKIE, cookie.toString() + "; Partitioned")
                     .body(ApiResponse.ok(data.getMessage(), data));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));

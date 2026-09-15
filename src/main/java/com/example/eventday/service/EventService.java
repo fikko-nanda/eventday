@@ -6,6 +6,8 @@ import com.example.eventday.entity.Event;
 import com.example.eventday.entity.TicketTier;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.TicketTierRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -98,11 +100,7 @@ public class EventService {
         // Mengambil teks paragraf langsung dari entity Event
         String facilities = event.getFacility();
 
-        List<EventDetailResponse.LineupItem> lineup = List.of(
-                EventDetailResponse.LineupItem.builder().name("Bintang Tamu").image("").build(),
-                EventDetailResponse.LineupItem.builder().name("Bintang Tamu").image("").build(),
-                EventDetailResponse.LineupItem.builder().name("Bintang Tamu").image("").build()
-        );
+        List<EventDetailResponse.LineupItem> lineup = parseLineup(event.getLineup());
 
         return EventDetailResponse.builder()
                 .id(event.getEventId().toString())
@@ -186,5 +184,16 @@ public class EventService {
             case "date_asc" -> Sort.by(Sort.Direction.ASC, "startDate");
             default -> Sort.by(Sort.Direction.DESC, "startDate");
         };
+    }
+
+    private List<EventDetailResponse.LineupItem> parseLineup(String rawLineup) {
+        if (rawLineup == null || rawLineup.isBlank()) {
+            return List.of();
+        }
+        try {
+            return new ObjectMapper().readValue(rawLineup, new TypeReference<List<EventDetailResponse.LineupItem>>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 }

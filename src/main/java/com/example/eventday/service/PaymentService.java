@@ -46,8 +46,10 @@ public class PaymentService {
         Order order = orderRepository.findById(request.getOrderId())
                 .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan"));
 
-        if (!"PENDING".equalsIgnoreCase(order.getStatus())) {
-            throw new IllegalStateException("Order tidak dalam status PENDING");
+        // Charge boleh dari PENDING (langsung) atau WAITING_PAYMENT (sesudah checkout/process) —
+        // charge ulang me-regenerate VA (mock). Yang ditolak: order yang sudah final/kedaluwarsa.
+        if (!"PENDING".equalsIgnoreCase(order.getStatus()) && !"WAITING_PAYMENT".equalsIgnoreCase(order.getStatus())) {
+            throw new IllegalStateException("Order tidak dapat di-charge pada status " + order.getStatus());
         }
 
         // Mock Virtual Account Generator

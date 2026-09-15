@@ -69,6 +69,9 @@ public class SecurityConfig {
                 // Modul Legal & Informasi Statis (Publik)
                 .requestMatchers("/api/v1/terms-conditions", "/api/v1/privacy-policy").permitAll()
 
+                // Modul Admin/Superadmin — hanya ROLE_ADMIN (filter set ROLE_<role> dari JWT)
+                .requestMatchers("/admin/**").hasRole("ADMIN")
+
                 // Semua endpoint lain (Checkout, Payment, My Tickets, Profile, Organizer) wajib login
                 .anyRequest().authenticated()
             )

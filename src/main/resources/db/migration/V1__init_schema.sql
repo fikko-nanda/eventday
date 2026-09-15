@@ -83,6 +83,7 @@ CREATE TABLE events (
     venue_name     VARCHAR(150),
     banner_url     VARCHAR(255),
     facility       TEXT,
+    lineup         TEXT,
     start_date     TIMESTAMP NOT NULL,
     end_date       TIMESTAMP NOT NULL,
     status         VARCHAR(20) NOT NULL DEFAULT 'DRAFT',

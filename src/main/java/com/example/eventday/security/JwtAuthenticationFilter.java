@@ -16,6 +16,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import jakarta.servlet.http.Cookie;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +25,8 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthRepository authRepository;
@@ -35,11 +39,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = resolveToken(request);
         if (token == null) {
+            log.debug("JWT: TIDAK ADA TOKEN -> tidak autentikasi (cek: Authorization header / cookie access_token dikirim? credentials:'include' active?)");
             filterChain.doFilter(request, response);
             return;
         }
         try {
             if (!jwtTokenProvider.validateToken(token)) {
+                log.debug("JWT: token ada tapi INVALID/EXPIRED -> tidak autentikasi");
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -49,6 +55,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             Auth auth = authRepository.findByUserUserId(userId).orElse(null);
             if (auth == null || !"ACTIVE".equals(auth.getStatus()) || !token.equals(auth.getAksesToken())) {
+                log.debug("JWT: token VALID tapi auth status/aksesToken TIDAK COCOK untuk user {}", userId);
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -59,7 +66,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
         } catch (Exception e) {
-            // Invalid token, continue without authentication
+            log.debug("JWT: exception saat validasi token -> tidak autentikasi: {}", e.getMessage());
         }
 
         filterChain.doFilter(request, response);

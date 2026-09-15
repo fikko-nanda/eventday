@@ -3,8 +3,8 @@
 Base URL (lokal): `http://localhost:8082`
 Base URL (ngrok lintas-laptop): `https://<id-baru>.ngrok-free.app` → `ngrok http 8082`
 
-> **Status 2026-09-14 (rev.6):** PR #10 (HEAD) **rampungkan Checkout** — `attendees` tersimpan real ke `order_attendees`, tambah `POST /checkout/calculation` (tax 10%) + `POST /checkout/process` (→ `WAITING_PAYMENT`) + `GET /orders/status` (polling). `SecurityConfig` kini **SUDAH di-commit**: `/api/v1/events/**` + `/api/v1/terms-conditions` + `/api/v1/privacy-policy` publik. Modul aktif: Auth + Event Catalog + Home & Search (publik) + Checkout (8 endpoint) + Payment + Ticket.
-> **Last Updated:** 2026-09-14 — sinkron PR #10 (`calculation`/`process`/`orders/status` + attendees real), `SecurityConfig` committed, DB lokal `localhost:5432/eventday`.
+> **Status 2026-09-14 (rev.8):** PR #12 (HEAD `0405d44`) **lengkapi Ticket** — `GET /api/tickets/user/{email}` alias `GET /api/tickets/my-tickets?userEmail=` (dua-duanya list `TicketItem`), **baru** `GET /api/tickets/issued-detail?ticketCode=<UUID>` (payload E-Ticket → `TicketDetailResponse`), `POST /api/tickets/scan` (sama). Modul aktif: Auth + Event Catalog + Home & Search (publik) + Checkout (8) + Payment + Ticket (4) + User/Profile.
+> **Last Updated:** 2026-09-14 — sinkron PR #12 (my-tickets alias + issued-detail), lanjutan PR #11 (User/Profile 6 endpoint + logout), DB lokal `localhost:5432/eventday`.
 > **ngrok:** URL `9538-2400-...ngrok-free.app` di screenshot sudah expired. Jalankan `ngrok http 8082` di laptop backend, copy URL baru, ganti `BASE` di frontend. `localhost:8082` hanya untuk 1 laptop.
 > **Response Standard:** Semua API pakai `ApiResponse.java` `{msg, status, data}` `@JsonInclude ALWAYS` — helper `created(201)/ok(200)/badRequest(400)/unauthorized(401)/forbidden(403)/notFound(404)/internalError(500)`. `SecurityConfig.java` + `GlobalExceptionHandler.java` juga pakai `ApiResponse`.
 
@@ -80,12 +80,25 @@ Alias legacy `POST /api/auth/**` juga permit.
 | 25 | GET | `/api/v1/payments/methods/virtual-account` | Channel BCA/MANDIRI/BRI | `200` |
 | 26 | POST | `/api/v1/payments/charge` | `{orderId,paymentMethod,bankCode}` → VA `88325...`, status `WAITING_PAYMENT` | `200` |
 
-## Daftar Endpoint Ticket (perlu login — PR #9, base TANPA /v1)
+## Daftar Endpoint Ticket (perlu login — PR #9 + PR #12, base TANPA /v1)
 
 | # | Method | Endpoint | Deskripsi | HTTP |
 |---|--------|----------|-----------|------|
-| 27 | GET | `/api/tickets/user/{email}` | Tiket milik user (kosong sampai tiket diterbitkan) | `200` |
-| 28 | POST | `/api/tickets/scan` | Scan QR `{ticketCode: "<UUID>"}` → `TIKET_VALID`/`TIKET_SUDAH_DIPAKAI` | `200`/`400` |
+| 27 | GET | `/api/tickets/user/{email}` | List tiket milik user (kosong sampai tiket diterbitkan) | `200` |
+| 28 | GET | `/api/tickets/my-tickets?userEmail=` | Alias #27 (PR #12) — email via query param | `200` |
+| 29 | GET | `/api/tickets/issued-detail?ticketCode=` | Detail E-Ticket (PR #12) — `TicketDetailResponse` | `200`/`400` |
+| 30 | POST | `/api/tickets/scan` | Scan QR `{ticketCode: "<UUID>"}` → `TIKET_VALID`/`TIKET_SUDAH_DIPAKAI` | `200`/`400` |
+
+## Daftar Endpoint User/Profile & Logout (perlu login — PR #11)
+
+| # | Method | Endpoint | Deskripsi | HTTP |
+|---|--------|----------|-----------|------|
+| 31 | GET | `/api/v1/user/profile` | Profil akun sendiri | `200` |
+| 32 | PUT | `/api/v1/user/profile/save` | Update nama/phone/nik | `200` |
+| 33 | PUT | `/api/v1/account/change-password` | Ganti password (wajib old + new min 6) | `200` |
+| 34 | POST | `/api/v1/user/avatar` | Upload avatar (multipart → mock URL) | `200` |
+| 35 | POST | `/api/v1/user/logout` | Logout — hapus cookie + invalidasi token DB | `200` |
+| 36 | GET | `/api/v1/transactions/history` | Riwayat transaksi/order milik user | `200` |
 
 ---
 
@@ -229,7 +242,12 @@ Flow `AuthService.java:124`: resolve identifier → `findByUserUserId` → `matc
   }
 }
 ```
-`Set-Cookie: access_token=eyJhbG...; Path=/; HttpOnly; Max-Age=86400; SameSite=Lax` — token **tidak ada di `data.token` (hidden via `@JsonIgnore`)**, browser simpan otomatis. `data.expiresIn` detik (`86400` = 24 jam). Request selanjutnya kirim otomatis via `Cookie: access_token` atau manual `Authorization: Bearer <token>` (filter support keduanya `JwtAuthenticationFilter.java:32`).
+`Set-Cookie: access_token=eyJhbG...; Path=/; Max-Age=86400; Expires=...; Secure; HttpOnly; SameSite=None; Partitioned` — token **tidak ada di `data.token` (hidden via `@JsonIgnore`)**, browser simpan otomatis. `data.expiresIn` detik (`86400` = 24 jam). Request selanjutnya kirim otomatis via `Cookie: access_token` atau manual `Authorization: Bearer <token>` (filter support keduanya `JwtAuthenticationFilter.java:32`).
+
+> **Penting**: Kalau login dilakukan dari `localhost:5173` ke `localhost:8082`, browser kemungkinan besar **menyembunyikan/memblokir cookie** karna third‑party. Pastikan:
+> 1. login ulang lewat **Incognito window** (`Ctrl+Shift+N`) — cookie pasti muncul di `Application → Cookies → localhost`.
+> 2. di frontend fetch/axios pakai `credentials: 'include'` (axios: `withCredentials: true`).
+> 3. setelah server restart (10:38:55), cookie lama tetap ada tapi **harus login ulang** biarkan session terbaru (old cookie sudah tidak bisa digunakan).
 
 ### Error `400`
 ```json
@@ -451,7 +469,7 @@ curl -H "Authorization: Bearer $TOKEN" "localhost:8082/api/v1/events?category=MU
     "image": "https://images.unsplash.com/photo-...",
     "status": "PUBLISHED",
     "statusLabel": "Tersedia",
-    "facilities": ["Parkir Luas", "Wifi Gratis", "Food Court"],
+    "facilities": "Parkir Luas, Food Court, Musholla, Toilet Bersih, Wifi Gratis",  // ⚠️ STRING (belum di-parse jadi array!)
     "lineup": [
       {"name": "Bintang Tamu", "image": ""},
       {"name": "Bintang Tamu", "image": ""},
@@ -486,7 +504,7 @@ curl -H "Authorization: Bearer $TOKEN" "localhost:8082/api/v1/events?category=MU
 **Mapping ke frontend:**
 - `event.tickets[0]` → Early Bird, `event.tickets[1]` → Regular
 - `event.lineup` → daftar bintang tamu
-- `event.facilities` → list string (dipisah dari kolom `facility` TEXT, delimiter koma)
+- `event.facilities` → **STRING** (raw kolom `facility` TEXT, delimiter koma, contoh `"Parkir Luas, Food Court"`). ⚠️ **BUKAN array** — frontend harus `.split(', ')` dulu. Gap: backend belum parse → `List<String>` (lihat Known Issue di AGENTS.md).
 - `quantity` state lokal frontend, saat `Beli Tiket` → `navigate(/checkout/:id)` bawa `quantity` + `selectedTicketId`
 
 **Error `404`:**
@@ -603,12 +621,83 @@ Syarat: order masih `PENDING`, sekali charge saja.
 
 ---
 
-## 14. Ticket — My Tickets & Scan (perlu login, base `/api/tickets` TANPA `/v1`)
+## 14. Ticket — My Tickets, E-Ticket Detail & Scan (perlu login, base `/api/tickets` TANPA `/v1`)
+
+### GET `/api/tickets/user/{email}` dan alias `GET /api/tickets/my-tickets?userEmail=<email>` (PR #12)
+Kedua endpoint mengembalikan `List<TicketItem>` (entity) milik user via `findByOrderCustomerEmailOrderByCreatedAtDesc`. **Kosong `[]` sampai `generateTicket()` dipanggil** (saat ini tak ada alur yang memanggil!).
+
+### GET `/api/tickets/issued-detail?ticketCode=<ticketItem-uuid>` — E-Ticket Detail (PR #12)
+`ticketCode` = **UUID `ticketItemId`**. Respons `data` = `TicketDetailResponse`:
+```json
+{"msg":"Detail E-Ticket berhasil dimuat","status":200,"data":{"ticketId":"<uuid>","ticketCode":"<uuid>","orderId":"<uuid>","eventTitle":"Neon Nights Concert","eventDate":"2026-12-15T19:00:00","venueName":"Stadion Utama GBK","categoryName":"Early Bird","attendeeName":"Budi","attendeeEmail":"budi@mail.com","attendeeIdentityNumber":"3201234567890123","status":"UNREDEEMED","issuedAt":"2026-09-14T10:00:00"}}
+```
+Error `400`: `{"msg":"Format kode tiket tidak valid!","status":400,"data":null}` / `{"msg":"Tiket tidak ditemukan!","status":400,"data":null}`.
+
+### POST `/api/tickets/scan`
+Body `{"ticketCode":"<ticketItem-uuid>"}` → `TIKET_VALID` (set `CHECKED_IN`+`checkInAt`) / `TIKET_SUDAH_DIPAKAI` / 400 format tak valid. Respons:
+```json
+{"msg":"Proses scan selesai","status":200,"data":{"status":"TIKET_VALID","message":"Proses scan selesai"}}
+```
 
 ```bash
-curl -b cookies.txt localhost:8082/api/tickets/user/john@mail.com   # [] sampai generateTicket() dipanggil (saat ini tak ada alur yang memanggil!)
+curl -b cookies.txt localhost:8082/api/tickets/user/john@mail.com                        # [] sampai generateTicket() dipanggil
+curl -b cookies.txt "localhost:8082/api/tickets/my-tickets?userEmail=john@mail.com"      # alias PR #12
+curl -b cookies.txt "localhost:8082/api/tickets/issued-detail?ticketCode=<ticketItem-uuid>"  # E-Ticket detail (PR #12)
 curl -b cookies.txt -X POST localhost:8082/api/tickets/scan -H "Content-Type: application/json" -d '{"ticketCode":"<ticketItem-uuid>"}'
-# → TIKET_VALID (set CHECKED_IN+checkInAt) / TIKET_SUDAH_DIPAKAI / 400 format tak valid
+# → TIKET_VALID / TIKET_SUDAH_DIPAKAI / 400 format tak valid
+```
+
+---
+
+## 15. User — Profile, Ganti Password, Logout, Riwayat (PR #11, perlu login)
+
+Semua endpoint ambil userId dari `authentication.getName()` (`UserController.getAuthenticatedUserId`). Email/username/role **tidak bisa diganti** — hanya name/phone/nik.
+
+### GET `/api/v1/user/profile`
+```json
+{"msg":"Berhasil mengambil data profil","status":200,"data":{"userId":"uuid","name":"John Doe","email":"john@mail.com","username":"john123","phone":"08123456789","nik":"3201234567890123","role":"CUSTOMER","avatarUrl":null}}
+```
+
+### PUT `/api/v1/user/profile/save`
+Body `{"name":"John Doe","phone":"08123456789","nik":"3201234567890123"}` — `name` @NotBlank @Size100, `phone` @Size15, `nik` `^\d{16}$` unik.
+```json
+{"msg":"Profil berhasil diperbarui","status":200,"data":{...UserProfileResponse terbaru...}}
+```
+Error `400` NIK duplikat: `{"msg":"NIK sudah digunakan akun lain!","status":400,"data":null}`.
+
+### PUT `/api/v1/account/change-password`
+Body `{"oldPassword":"123456","newPassword":"newPass123"}` — `newPassword` min 6, tidak boleh sama dengan `oldPassword`. Verifikasi `matches(old)` → simpan BCrypt baru → audit `CHANGE_PASSWORD` + email notifikasi `sendPasswordChangedNotification`.
+```json
+{"msg":"Password berhasil diubah","status":200,"data":null}
+```
+Error `400`: `{"msg":"Password lama salah!","status":400,"data":null}` / `{"msg":"Password baru tidak boleh sama dengan password lama!","status":400,"data":null}`.
+
+### POST `/api/v1/user/avatar` (multipart)
+`-F "file=@avatar.jpg"` → return mock URL (file belum disimpan):
+```json
+{"msg":"Avatar berhasil diperbarui","status":200,"data":"/uploads/avatars/<uuid>_avatar.jpg"}
+```
+
+### POST `/api/v1/user/logout`
+Panggil `AuthService.logout` (null-kan `aksesToken/expiredToken` + status `INACTIVE`) + `Set-Cookie access_token` maxAge 0 (hapus cookie).
+```json
+{"msg":"Logout berhasil","status":200,"data":null}
+```
+Setelah logout, token lama tidak valid (`403`).
+
+### GET `/api/v1/transactions/history`
+`OrderRepository.findByCustomerUserId` → `data[]`:
+```json
+{"msg":"Berhasil mengambil riwayat transaksi","status":200,"data":[{"orderId":"uuid","orderNumber":"ORD-XXXXXXXX","eventTitle":"Neon Nights 2024","ticketTierName":"Early Bird","quantity":2,"totalAmount":405000,"status":"PENDING","createdAt":"2026-09-14T10:00:00","expiredAt":"2026-09-14T10:15:00"}]}
+```
+
+```bash
+curl -b cookies.txt localhost:8082/api/v1/user/profile
+curl -b cookies.txt -X PUT localhost:8082/api/v1/user/profile/save -H "Content-Type: application/json" -d '{"name":"John Doe","phone":"08123456789","nik":"3201234567890123"}'
+curl -b cookies.txt -X PUT localhost:8082/api/v1/account/change-password -H "Content-Type: application/json" -d '{"oldPassword":"123456","newPassword":"newPass123"}'
+curl -b cookies.txt -X POST localhost:8082/api/v1/user/avatar -F "file=@avatar.jpg"
+curl -b cookies.txt -X POST localhost:8082/api/v1/user/logout
+curl -b cookies.txt localhost:8082/api/v1/transactions/history
 ```
 
 ---
@@ -620,9 +709,10 @@ curl -b cookies.txt -X POST localhost:8082/api/tickets/scan -H "Content-Type: ap
 | Refunds | `POST /api/v1/refunds` | Spek siap | `401/403` |
 | Settings | `GET/PUT /api/v1/settings/**` | DB ready | `401/403` |
 | Organizer | register/dashboard/status | DB ready, belum ada service | `401/403/404` |
-| User/Profile | profile/transactions/avatar | Belum ada | `404` |
 | Legal | `GET /api/v1/terms-conditions`, `/api/v1/privacy-policy` | permitAll tapi controller BELUM ADA | `404` |
 | Audit | `GET /api/v1/audit/**` | hanya log internal | `401/403` |
+
+> User/Profile (`/user/**`, `/account/change-password`, `/transactions/history`, avatar, logout) **SUDAH AKTIF** via PR #11 — bukan schema-only lagi.
 
 `RescheduleRequest` **dihapus** — jangan panggil.
 
@@ -637,7 +727,7 @@ curl -b cookies.txt -X POST localhost:8082/api/tickets/scan -H "Content-Type: ap
 *   `AuthenticationException` → `unauthorized` `401`
 *   `AccessDeniedException` → `forbidden` `403`
 *   `Exception` → `internalError` `500`
-*   Sukses → `ok(200)` / `created(201)` (register/google baru) — `AuthController.java` `created`, `EventController.java` `ok`/`notFound(404)`, `HomeSearchController.java` `ok` (6 endpoint home/search), `HomeController.java:10` `ok("Eventday API Server is Running!","OK")`
+*   Sukses → `ok(200)` / `created(201)` (register/google baru) — `AuthController.java` `created`, `EventController.java` `ok`/`notFound(404)`, `HomeSearchController.java` `ok` (6 endpoint home/search), `UserController.java` `ok` (PR #11: profile/save/change-password/avatar/logout/transactions), `HomeController.java:10` `ok("Eventday API Server is Running!","OK")`
 
 Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk branching, `data` untuk payload.
 
@@ -650,7 +740,7 @@ Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk b
 *   `events.status`: `DRAFT` / `PUBLISHED` / `CANCELLED` / `COMPLETED` (tampilkan `AVAILABLE` di API sebagai alias `PUBLISHED`)
 *   `events.category`: `MUSIC_FESTIVAL` / `CONFERENCE` / `EXHIBITION` / `CULINARY` (API kirim display label)
 *   `orders.status`: `PENDING` / `WAITING_PAYMENT` (mock VA PR #9) / `PAID` / `EXPIRED` / `CANCELLED`
-*   `ticket_items.status`: `UNREDEEMED` / `REDEEMED` / `EXPIRED`
+*   `ticket_items.status`: `UNREDEEMED` / `CHECKED_IN` (hasil scan PR #9/#12) / `REDEEMED` / `EXPIRED`
 *   `refund_requests.status`: `PENDING` / `APPROVED` / `REJECTED`
 *   Lain schema-only: `organizers.verification_status UNVERIFIED`, `bookings PENDING`
 
@@ -678,8 +768,17 @@ CHECKOUT FLOW (setelah login):
   POST /payments/charge {orderId,VIRTUAL_ACCOUNT,BCA} --> VA 88325... + WAITING_PAYMENT
   GET /orders/status?orderId=               --> polling status (PR #10)
   GET /checkout/summary?orderId=            --> ringkasan tagihan
-  GET /tickets/user/{email}                 --> [] sampai tiket diterbitkan
+  GET /tickets/user/{email}|/my-tickets?userEmail= --> [] sampai tiket diterbitkan
+  GET /tickets/issued-detail?ticketCode=    --> detail E-Ticket (PR #12)
   POST /tickets/scan {ticketCode}           --> TIKET_VALID / TIKET_SUDAH_DIPAKAI
+
+USER PROFILE FLOW (setelah login, PR #11):
+  GET /user/profile                        --> data profil {name,email,username,phone,nik,role}
+  PUT /user/profile/save {name,phone,nik}  --> update profil
+  PUT /account/change-password {old,new}   --> ganti password + email notif
+  POST /user/avatar (multipart file)       --> mock URL avatar
+  POST /user/logout                        --> hapus cookie + token DB INACTIVE
+  GET /transactions/history                --> riwayat order milik user
 
 HOME & SEARCH FLOW (publik, tanpa token):
   GET /home/hero-banner           --> banner promo (max 5 featured)
@@ -755,7 +854,18 @@ export const processCheckout = (orderId) => fetch(`${BASE_API}/checkout/process`
 export const getOrderStatus = (orderId) => apiGet(`/orders/status?orderId=${orderId}`); // polling → data.status
 export const getSummary = (orderId) => apiGet(`/checkout/summary?orderId=${orderId}`);
 export const chargeVA = (orderId,bankCode='BCA') => fetch(`${BASE_API}/payments/charge`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId,paymentMethod:'VIRTUAL_ACCOUNT',bankCode})}).then(r=>r.json());
-// ticket (base TANPA /v1!): GET /api/tickets/user/{email}, POST /api/tickets/scan {ticketCode}
+// ticket (base TANPA /v1! perlu login): GET /api/tickets/user/{email} + alias /my-tickets?userEmail= + GET /issued-detail?ticketCode= + POST /scan {ticketCode}
+export const getMyTickets = (email) => apiGet(`/tickets/my-tickets?userEmail=${encodeURIComponent(email)}`); // data[] → TicketItem (PR #12)
+export const getTicketDetail = (ticketCode) => apiGet(`/tickets/issued-detail?ticketCode=${ticketCode}`); // data → TicketDetailResponse (PR #12)
+export const scanTicket = (ticketCode) => fetch(`${BASE_API.replace('/v1','')}/api/tickets/scan`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticketCode})}).then(r=>r.json()); // → data.status TIKET_VALID/TIKET_SUDAH_DIPAKAI
+
+// contoh user/profile & logout — base /api/v1 (PR #11)
+export const getProfile = () => apiGet('/user/profile'); // data:{userId,name,email,username,phone,nik,role,avatarUrl}
+export const updateProfile = (payload) => fetch(`${BASE_API}/user/profile/save`,{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.json()); // payload:{name,phone,nik}
+export const changePassword = (oldPassword,newPassword) => fetch(`${BASE_API}/account/change-password`,{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({oldPassword,newPassword})}).then(r=>r.json());
+export const uploadAvatar = (file) => { const fd = new FormData(); fd.append('file',file); return fetch(`${BASE_API}/user/avatar`,{method:'POST',credentials:'include',body:fd}).then(r=>r.json()); }; // → data:"/uploads/avatars/<uuid>_<nama>"
+export const logout = () => fetch(`${BASE_API}/user/logout`,{method:'POST',credentials:'include'}).then(r=>r.json());
+export const getTransactions = () => apiGet('/transactions/history'); // → data[]
 ```
 
 1. Base `http://localhost:8082`, `Content-Type: application/json`, `credentials:'include'` selalu.
@@ -769,5 +879,6 @@ export const chargeVA = (orderId,bankCode='BCA') => fetch(`${BASE_API}/payments/
 9. Customer events paginated `?page&size` — default `page 0 size 12`. `size` = jumlah data/halaman, bukan ukuran CSS.
 10. Harga number IDR, format `Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR"})`.
 11. Home & search publik tanpa token — bisa dites via browser/curl/`test-modul1.http`. `date` format `YYYY-MM-DD`.
+12. User/Profile & logout (PR #11): endpoint `/user/**`, `/account/change-password`, `/transactions/history` — semua perlu login (cookie/Bearer); avatar masih mock (return URL, file belum disimpan).
 ```
 

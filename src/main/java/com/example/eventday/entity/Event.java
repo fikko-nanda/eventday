@@ -40,6 +40,9 @@ public class Event {
     @Column(name = "facility", columnDefinition = "TEXT")
     private String facility;
 
+    @Column(columnDefinition = "TEXT")
+    private String lineup;
+
     @Column(name = "start_date", nullable = false)
     private LocalDateTime startDate;
 

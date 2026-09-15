@@ -106,10 +106,14 @@ public class OrderService {
     }
 
     // 3. Process Checkout (Kunci status menjadi WAITING_PAYMENT)
+    // Guard: tolak order yang sudah final/kedaluwarsa agar process tak bisa downgrade status PAID.
     @Transactional
     public Order processCheckout(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan"));
+        if (!"PENDING".equalsIgnoreCase(order.getStatus()) && !"WAITING_PAYMENT".equalsIgnoreCase(order.getStatus())) {
+            throw new IllegalStateException("Order tidak dapat diproses pada status " + order.getStatus());
+        }
         order.setStatus("WAITING_PAYMENT");
         return orderRepository.save(order);
     }
