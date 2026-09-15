@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -95,5 +96,55 @@ public class OrganizerController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> logout() {
         organizerService.logout();
         return ResponseEntity.ok(ApiResponse.ok("Organizer berhasil logout", null));
+    }
+
+    // ==========================================
+    // PERMINTAAN UI/UX: 3. MANAJEMEN REFUND EO
+    // ==========================================
+
+    @GetMapping("/refunds")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getRefundRequests() {
+        return ResponseEntity.ok(ApiResponse.ok("Daftar permintaan refund berhasil diambil", organizerService.getRefundRequests()));
+    }
+
+    @GetMapping("/refunds/detail")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getRefundDetail(@RequestParam("id") String refundId) {
+        return ResponseEntity.ok(ApiResponse.ok("Detail refund berhasil diambil", organizerService.getRefundDetail(refundId)));
+    }
+
+    @PatchMapping("/refunds/{id}/status")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateRefundStatus(
+            @PathVariable("id") String refundId,
+            @RequestBody Map<String, Object> payload) {
+        return ResponseEntity.ok(ApiResponse.ok("Status refund berhasil diperbarui", organizerService.updateRefundStatus(refundId, payload)));
+    }
+
+    // ==========================================
+    // PERMINTAAN UI/UX: 4. PAYOUT & SALDO EO
+    // ==========================================
+
+    @GetMapping("/bank-accounts")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getBankAccounts() {
+        return ResponseEntity.ok(ApiResponse.ok("Daftar rekening bank berhasil diambil", organizerService.getBankAccounts()));
+    }
+
+    @GetMapping("/events/{id}/payout-balance")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPayoutBalance(@PathVariable("id") Long eventId) {
+        return ResponseEntity.ok(ApiResponse.ok("Saldo payout event berhasil diambil", organizerService.getPayoutBalance(eventId)));
+    }
+
+    @GetMapping("/payouts")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getPayouts() {
+        return ResponseEntity.ok(ApiResponse.ok("Riwayat payout berhasil diambil", organizerService.getPayouts()));
+    }
+
+    @PostMapping("/payouts")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> requestPayout(@RequestBody Map<String, Object> request) {
+        return ResponseEntity.ok(ApiResponse.ok("Pengajuan payout berhasil dikirim", organizerService.createPayout(request)));
+    }
+
+    @GetMapping("/payouts/detail")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPayoutDetail(@RequestParam("id") Long id) {
+        return ResponseEntity.ok(ApiResponse.ok("Detail payout berhasil diambil", organizerService.getPayoutDetail(id)));
     }
 }
