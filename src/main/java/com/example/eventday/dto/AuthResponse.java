@@ -1,6 +1,5 @@
 package com.example.eventday.dto;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,7 +18,10 @@ public class AuthResponse {
     private String email;
     private String username;
     private String role;
-    @JsonIgnore
     private String token;
     private Long expiresIn;
+
+    public String getToken() {
+        return token;
+    }
 }
