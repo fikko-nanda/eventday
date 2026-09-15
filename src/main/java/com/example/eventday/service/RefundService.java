@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,7 +42,6 @@ public class RefundService {
 
     @Transactional
     public RefundDetailResponse submitRefund(RefundRequest request) {
-        // Ambil ID customer otomatis dari token JWT user yang sedang login
         String currentUserIdStr = SecurityContextHolder.getContext().getAuthentication().getName();
 
         RefundRequestEntity entity = RefundRequestEntity.builder()
@@ -87,18 +87,30 @@ public class RefundService {
                 .orElseThrow(() -> new RuntimeException("Refund tidak ditemukan!"));
     }
 
+    // Mengambil riwayat berdasarkan customerId (Database)
+    public List<RefundDetailResponse> getRefundHistoryByCustomer(UUID customerId) {
+    return refundRepository.findByCustomerId(customerId).stream()
+            .map(r -> RefundDetailResponse.builder()
+                    .refundId(r.getRefundId())
+                    .orderId(r.getOrderId())
+                    .amount(r.getRefundAmount())
+                    .reason(r.getReason())
+                    .bankName(r.getBankName())
+                    .accountNumber(r.getBankAccountNumber())
+                    .accountHolderName(r.getBankAccountName())
+                    .status(r.getStatus())
+                    .createdAt(r.getCreatedAt())
+                    .build())
+            .collect(Collectors.toList());
+}
+
+    // Kompatibilitas method lama (Email)
     public List<RefundDetailResponse> getRefundHistory(String email) {
-        return List.of(
-                RefundDetailResponse.builder()
-                        .refundId(UUID.randomUUID())
-                        .orderId(UUID.randomUUID())
-                        .amount(new BigDecimal("290000.00"))
-                        .reason("Acara Diundur")
-                        .bankName("BCA")
-                        .accountNumber("1234567890")
-                        .accountHolderName("Nama Customer")
-                        .status("COMPLETED")
-                        .createdAt(LocalDateTime.now())
-                        .build());
+        String currentUserIdStr = SecurityContextHolder.getContext().getAuthentication().getName();
+        try {
+            return getRefundHistoryByCustomer(UUID.fromString(currentUserIdStr));
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 }
