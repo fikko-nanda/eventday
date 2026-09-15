@@ -7,6 +7,7 @@ import com.example.eventday.dto.RefundRequest;
 import com.example.eventday.service.RefundService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -49,12 +50,18 @@ public class RefundController {
     @GetMapping("/refund/refund-detail/download-proof")
     public ResponseEntity<ApiResponse<Map<String, String>>> downloadProof(@RequestParam UUID refundId) {
         RefundDetailResponse detail = refundService.getRefundDetail(refundId);
-        return ResponseEntity.ok(ApiResponse.success("URL Bukti transfer refund", Map.of("proofUrl", detail.getProofUrl())));
+        String proofUrl = detail.getProofUrl() != null ? detail.getProofUrl() : "";
+        return ResponseEntity.ok(ApiResponse.success("URL Bukti transfer refund", Map.of("proofUrl", proofUrl)));
     }
 
     // Spec v1.3.0: /tickets/refund/refund-history
     @GetMapping("/tickets/refund/refund-history")
-    public ResponseEntity<ApiResponse<List<RefundDetailResponse>>> getRefundHistory(@RequestParam String email) {
-        return ResponseEntity.ok(ApiResponse.success("Riwayat pengajuan refund", refundService.getRefundHistory(email)));
+    public ResponseEntity<ApiResponse<List<RefundDetailResponse>>> getRefundHistory() {
+        String currentUserIdStr = SecurityContextHolder.getContext().getAuthentication().getName();
+        UUID customerId = UUID.fromString(currentUserIdStr);
+
+        // Panggil getRefundHistoryByCustomer yang menerima parameter UUID
+        List<RefundDetailResponse> history = refundService.getRefundHistoryByCustomer(customerId);
+        return ResponseEntity.ok(ApiResponse.success("Riwayat pengajuan refund", history));
     }
 }
