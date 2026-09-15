@@ -1,13 +1,21 @@
 package com.example.eventday.service;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class MidtransService {
@@ -18,9 +26,9 @@ public class MidtransService {
     @Value("${midtrans.snap-url}")
     private String snapUrl;
 
-    public Map<String, String> createSnapTransaction(String orderId, BigDecimal grossAmount, String customerName, String customerEmail) {
-        RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate = new RestTemplate();
 
+    public Map<String, String> createSnapTransaction(String orderId, BigDecimal grossAmount, String customerName, String customerEmail) {
         // 1. Setup Basic Auth Header (ServerKey + ":") Base64
         String authStr = serverKey + ":";
         String base64Auth = Base64.getEncoder().encodeToString(authStr.getBytes(StandardCharsets.UTF_8));
@@ -48,18 +56,27 @@ public class MidtransService {
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-        // 3. Eksekusi HTTP Request ke Midtrans
-        ResponseEntity<Map> response = restTemplate.postForEntity(snapUrl, entity, Map.class);
+        // 3. Eksekusi HTTP Request dengan ParameterizedTypeReference (Mencegah Raw Type Warning)
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                snapUrl,
+                HttpMethod.POST,
+                entity,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        );
 
-        if (response.getStatusCode() == HttpStatus.CREATED || response.getStatusCode() == HttpStatus.OK) {
+        if ((response.getStatusCode() == HttpStatus.CREATED || response.getStatusCode() == HttpStatus.OK) 
+                && response.getBody() != null) {
+
             Map<String, Object> body = response.getBody();
-            if (body != null) {
-                return Map.of(
-                        "snapToken", (String) body.get("token"),
-                        "redirectUrl", (String) body.get("redirect_url")
-                );
-            }
+            String token = String.valueOf(body.get("token"));
+            String redirectUrl = String.valueOf(body.get("redirect_url"));
+
+            return Map.of(
+                    "snapToken", token,
+                    "redirectUrl", redirectUrl
+            );
         }
+
         throw new RuntimeException("Gagal menghubungkan transaksi ke Midtrans Snap API");
     }
 }
