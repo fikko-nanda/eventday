@@ -1,6 +1,8 @@
 package com.example.eventday.controller;
 
 import com.example.eventday.dto.ApiResponse;
+import com.example.eventday.service.OrganizerService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -10,17 +12,18 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/organizer")
+@RequiredArgsConstructor
 public class OrganizerController {
 
+    private final OrganizerService organizerService;
+
     // ==========================================
-    // SPEC V1.3.0 (MODUL 07)
+    // SPEC V1.3.0 (MODUL 07) - SERVICE INTEGRATED
     // ==========================================
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<Map<String, Object>>> registerOrganizer(@RequestBody Map<String, Object> request) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("organizer_name", request.getOrDefault("name", "PT Penyelenggara Event"));
-        data.put("verification_status", "PENDING");
+        Map<String, Object> data = organizerService.registerOrganizer(request);
         return ResponseEntity.ok(ApiResponse.ok("Pendaftaran Event Organizer berhasil dikirim", data));
     }
 
@@ -29,32 +32,24 @@ public class OrganizerController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "type", defaultValue = "KTP") String documentType) {
 
-        Map<String, Object> data = new HashMap<>();
-        data.put("document_type", documentType);
-        data.put("file_name", file.getOriginalFilename());
-        data.put("file_size", file.getSize());
+        Map<String, Object> data = organizerService.uploadDocument(file, documentType);
         return ResponseEntity.ok(ApiResponse.ok("Dokumen berhasil diunggah", data));
     }
 
     @GetMapping("/status")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOrganizerStatus() {
-        Map<String, Object> data = new HashMap<>();
-        data.put("organizer_name", "PT Penyelenggara Event");
-        data.put("verification_status", "PENDING");
+        Map<String, Object> data = organizerService.getOrganizerStatus();
         return ResponseEntity.ok(ApiResponse.ok("Status verifikasi berhasil diambil", data));
     }
 
     @GetMapping("/dashboard")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOrganizerDashboard() {
-        Map<String, Object> data = new HashMap<>();
-        data.put("total_revenue", 42500000);
-        data.put("active_events", 2);
-        data.put("tickets_sold", 1248);
+        Map<String, Object> data = organizerService.getOrganizerDashboard();
         return ResponseEntity.ok(ApiResponse.ok("Data dashboard organizer berhasil diambil", data));
     }
 
     // ==========================================
-    // PERMINTAAN UI/UX: 1. PROFIL & LEGALITAS EO
+    // PERMINTAAN UI/UX LAINNYA
     // ==========================================
 
     @GetMapping("/profile")
@@ -103,10 +98,6 @@ public class OrganizerController {
         docs.put("ktp_name", "KTP_PIC.jpg");
         return ResponseEntity.ok(ApiResponse.ok("Daftar dokumen legalitas berhasil diambil", docs));
     }
-
-    // ==========================================
-    // PERMINTAAN UI/UX: 2. AUTENTIKASI EO
-    // ==========================================
 
     @PostMapping("/auth/change-password")
     public ResponseEntity<ApiResponse<Map<String, Object>>> changePassword(@RequestBody Map<String, Object> payload) {
