@@ -4,7 +4,8 @@ Base URL (lokal): `http://localhost:8082`
 Base URL (ngrok lintas-laptop): `https://<id-baru>.ngrok-free.app` → `ngrok http 8082`
 
 > **Status 2026-09-14 (rev.8):** PR #12 (HEAD `0405d44`) **lengkapi Ticket** — `GET /api/tickets/user/{email}` alias `GET /api/tickets/my-tickets?userEmail=` (dua-duanya list `TicketItem`), **baru** `GET /api/tickets/issued-detail?ticketCode=<UUID>` (payload E-Ticket → `TicketDetailResponse`), `POST /api/tickets/scan` (sama). Modul aktif: Auth + Event Catalog + Home & Search (publik) + Checkout (8) + Payment + Ticket (4) + User/Profile.
-> **Last Updated:** 2026-09-14 — sinkron PR #12 (my-tickets alias + issued-detail), lanjutan PR #11 (User/Profile 6 endpoint + logout), DB lokal `localhost:5432/eventday`.
+> **Status 2026-09-15 (rev.10):** Akar 401 checkout = **frontend** `authService.js` 6× `fetch` tanpa `credentials: 'include'` (lihat "FIX WAJIB frontend" di bawah) → cookie tak terkirim. Backend sehat (7 event PUBLISHED, `Partitioned` live, `pom.xml` java 21).
+> **Last Updated:** 2026-09-15 — sinkron rev.10 (fix frontend 401 + seed 3 event coba + `pom.xml` java 21), DB lokal `localhost:5432/eventday` (7 event PUBLISHED).
 > **ngrok:** URL `9538-2400-...ngrok-free.app` di screenshot sudah expired. Jalankan `ngrok http 8082` di laptop backend, copy URL baru, ganti `BASE` di frontend. `localhost:8082` hanya untuk 1 laptop.
 > **Response Standard:** Semua API pakai `ApiResponse.java` `{msg, status, data}` `@JsonInclude ALWAYS` — helper `created(201)/ok(200)/badRequest(400)/unauthorized(401)/forbidden(403)/notFound(404)/internalError(500)`. `SecurityConfig.java` + `GlobalExceptionHandler.java` juga pakai `ApiResponse`.
 
@@ -292,7 +293,24 @@ Error `400` `{"msg":"Token Google tidak valid: ...","status":400,"data":null}`
 curl -X POST localhost:8082/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
 ```
 
-**Frontend GIS:** `https://accounts.google.com/gsi/client` + `data-client_id=google.client-id` → `res.credential` → `POST /google` → `Set-Cookie access_token`.
+**Frontend GIS** (client ID wajib SAMA dengan backend, copy-paste):
+```html
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<div id="g_id_onload"
+     data-client_id="875040780549-1jq8bicaq1ne1ltjt7bfjcfjo82e5dj0.apps.googleusercontent.com"
+     data-callback="onGoogleCredential"></div>
+<script>
+  function onGoogleCredential(res) {
+    fetch(`${BASE_AUTH}/google`, { // BASE_AUTH = .../api/v1/auth
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include", // WAJIB — tanpanya cookie login Google tidak tersimpan → 401
+      body: JSON.stringify({ idToken: res.credential })
+    }).then(r => r.json());
+  }
+</script>
+```
+`res.credential` → `POST /google {idToken}` → `Set-Cookie access_token`. Backend (`AuthService.java:362-364`) tolak token bila `aud != google.client-id` di atas (`Token Google aud tidak sesuai`), jadi GIS wajib pakai client ID yang sama persis.
 
 ---
 
@@ -702,17 +720,87 @@ curl -b cookies.txt localhost:8082/api/v1/transactions/history
 
 ---
 
+## 16. Admin Module (perlu login **ADMIN** — `hasRole("ADMIN")`, UNCOMMITTED rev.9)
+
+> **Auth:** Semua endpoint di bawah butuh cookie/Bearer dengan role `ADMIN` (`SecurityConfig` `/admin/**` → `hasRole("ADMIN")`). CUSTOMER → `403 Forbidden`. Ambil `adminId` dari `authentication.getName()`.
+
+### Dashboard — `AdminDashboardController`
+
+**GET `/admin/dashboard/metrics`** → `AdminDashboardMetricsResponse`:
+```json
+{"msg":"Berhasil mengambil metrik admin","status":200,"data":{"totalPlatformRevenue":300000.0,"totalEvents":7,"activeEvents":7,"totalUsers":39,"totalTicketsSold":0}}
+```
+
+**GET `/admin/dashboard/recent-events`** → `List<Map>` (event terbaru platform).
+
+**GET `/admin/dashboard/recent-transactions`** → `List<TransactionHistoryResponse>` (sama shape dengan `/transactions/history`).
+
+### Users — `AdminUserController`
+
+**GET `/admin/users?role=CUSTOMER`** → `List<AdminUserListItemResponse>` (`role` opsional: CUSTOMER/ORGANIZER/ADMIN):
+```json
+{"userId":"uuid","name":"Budi Santoso","email":"budi@example.com","username":"budi_b78d","phone":"081234567890","nik":"3171012345670001","role":"CUSTOMER","authStatus":"INACTIVE","createdAt":"2026-09-02T22:41:40"}
+```
+
+**GET `/admin/users/{id}`** → `AdminUserListItemResponse` (satu user).
+
+**PATCH `/admin/users/{id}/status`** — body `{"status":"ACTIVE"}` (ACTIVE/INACTIVE/SUSPENDED, `@NotBlank`) → `{"msg":"Status pengguna berhasil diperbarui","status":200,"data":null}`.
+
+**PATCH `/admin/users/{id}/suspend`** — no body → langsung SUSPENDED + audit.
+
+### Settings — `AdminSettingsController`
+
+**GET `/admin/settings/general`** → `Map<String,String>` (nilai dari tabel `settings`; kosong `{}` jika belum di-seed).
+
+**PUT `/admin/settings/general`** — body `AdminSettingsRequest`:
+```json
+{"appName":"Eventday","contactEmail":"admin@eventday.local","adminFee":5000,"orderExpiryMinutes":15}
+```
+→ `{"msg":"Pengaturan sistem berhasil diperbarui","status":200,"data":null}` + audit.
+
+**GET `/admin/audit-logs?page=0&size=20`** → `Page<AuditLog>` (audit trail: REGISTER/LOGIN/UPDATE_PROFILE/CHANGE_PASSWORD/SUSPEND/dll).
+
+### EO Applications — `AdminEoController`
+
+**GET `/admin/eo-applications?status=UNVERIFIED`** → `List<AdminEoApplicationResponse>` (`status` opsional: UNVERIFIED/VERIFIED/REJECTED):
+```json
+{"organizerId":"uuid","userId":"uuid","nameOrganizer":"EO Konser Nusantara","userEmail":"...","userPhone":"...","npwpNumber":"...","bankName":"...","bankAccountNumber":"...","aktaPerusahaan":"...","verificationStatus":"VERIFIED","createdAt":"..."}
+```
+
+**GET `/admin/eo-applications/{id}`** → `AdminEoApplicationResponse` (satu aplikasi).
+
+**PATCH `/admin/eo-applications/{id}/status`** — body `AdminEoStatusRequest`:
+```json
+{"status":"VERIFIED","rejectionReason":null}
+```
+`status` `VERIFIED`/`REJECTED` (`@NotBlank`); `rejectionReason` wajib saat REJECTED → `{"msg":"Status verifikasi EO berhasil diperbarui","status":200,"data":null}`.
+
+**GET `/admin/eo-applications/{id}/documents/company-deed`** → `{"documentUrl":"..."}` (link akta perusahaan).
+
+```bash
+# Semua admin endpoint butuh cookie admin (login role ADMIN):
+curl -b admin-cookies.txt localhost:8082/admin/dashboard/metrics
+curl -b admin-cookies.txt "localhost:8082/admin/users?role=CUSTOMER"
+curl -b admin-cookies.txt -X PATCH localhost:8082/admin/users/<uuid>/status -H "Content-Type: application/json" -d '{"status":"ACTIVE"}'
+curl -b admin-cookies.txt -X PATCH localhost:8082/admin/users/<uuid>/suspend
+curl -b admin-cookies.txt localhost:8082/admin/settings/general
+curl -b admin-cookies.txt -X PUT localhost:8082/admin/settings/general -H "Content-Type: application/json" -d '{"appName":"Eventday","contactEmail":"a@b.c","adminFee":5000,"orderExpiryMinutes":15}'
+curl -b admin-cookies.txt "localhost:8082/admin/audit-logs?page=0&size=20"
+curl -b admin-cookies.txt "localhost:8082/admin/eo-applications?status=UNVERIFIED"
+curl -b admin-cookies.txt -X PATCH localhost:8082/admin/eo-applications/<uuid>/status -H "Content-Type: application/json" -d '{"status":"VERIFIED"}'
+curl -b admin-cookies.txt localhost:8082/admin/eo-applications/<uuid>/documents/company-deed
+```
+
+---
+
 ## ⏳ Modul Lain — SCHEMA ONLY (belum aktif)
 
 | Modul | Rencana Endpoint | Status | HTTP |
 |---|---|---|---|
 | Refunds | `POST /api/v1/refunds` | Spek siap | `401/403` |
-| Settings | `GET/PUT /api/v1/settings/**` | DB ready | `401/403` |
-| Organizer | register/dashboard/status | DB ready, belum ada service | `401/403/404` |
 | Legal | `GET /api/v1/terms-conditions`, `/api/v1/privacy-policy` | permitAll tapi controller BELUM ADA | `404` |
-| Audit | `GET /api/v1/audit/**` | hanya log internal | `401/403` |
 
-> User/Profile (`/user/**`, `/account/change-password`, `/transactions/history`, avatar, logout) **SUDAH AKTIF** via PR #11 — bukan schema-only lagi.
+> **Sudah AKTIF (bukan schema-only lagi):** User/Profile via PR #11; **Admin module** (dashboard/users/settings/audit/eo-applications, 13 endpoint, UNCOMMITTED rev.9 — lihat §16); **Settings** via `PUT /admin/settings/general`; **Organizer verification** via `/admin/eo-applications/*`. Catatan: **register EO sisi customer** (organizer daftar mandiri) masih belum ada — admin hanya bisa memverifikasi organizer yang sudah ada.
 
 `RescheduleRequest` **dihapus** — jangan panggil.
 
@@ -798,6 +886,11 @@ DB: `users --1:1-- auth (hash+googleId+token+resetToken) --1:N-- otp` (`password
 - Lokal (1 laptop): `http://localhost:8082/api/v1/auth`
 - Lintas laptop (ngrok): `https://<id-baru>.ngrok-free.app/api/v1/auth` dari `ngrok http 8082` — ganti tiap restart ngrok. Jangan pakai `9538-...` (expired) atau `127.0.0.1:8000` (Django).
 - **Contoh salah → 401:** `BASE = 'https://xxx.ngrok-free.app'` lalu `fetch(BASE + '/register')` → request ke `/register` (tidak ada di `SecurityConfig.java:55`) → `401`. **Benar:** `BASE = 'https://xxx.ngrok-free.app/api/v1/auth'` lalu `fetch(BASE + '/register')` → `POST /api/v1/auth/register` → `201`.
+
+> **🔧 FIX WAJIB frontend — penyebab 401 checkout (verified 2026-09-15):** `authService.js` 6× `fetch` **tanpa** `credentials: 'include'` → `Set-Cookie access_token` tidak pernah tersimpan/terkirim, semua request protected `401` (`user=- auth=none`, log filter: `JWT: TIDAK ADA TOKEN`). `api.js` (`apiFetch`) + `checkoutService.js` sudah benar. Tambahkan `credentials: "include",` di tiap fetch berikut (nomor baris = copy `Downloads/authService.js`):
+> - `verify-otp` (`:179`), `resend-otp` (`:219`), `login` (`:284`), `google` (`:316`), `reset-password` ×2 (`:355` forgotPassword, `:412` resetPassword) — contoh: `fetch(\`${API_URL}/login\`, { method: "POST", headers: getHeaders(), credentials: "include", body: ... })`.
+> - Setelah edit: login ulang di **Incognito** (`Ctrl+Shift+N`) → cek `Application → Cookies → localhost:8082` ada `access_token` → checkout harus `200`.
+> - Kalau event baru tidak muncul padahal backend kirim 7 (`totalElements: 7`): `api.js`/`authService.js` default ke ngrok lama `https://174a-140-213-45-232.ngrok-free.app` (kemungkinan expired) — set `.env` `VITE_API_URL=http://localhost:8082/api/v1` + **restart `npm run dev`**, lalu cek Network → Request URL + `totalElements`.
 
 ```js
 // helper standar — token via HttpOnly Cookie, JANGAN pakai getApiBase
