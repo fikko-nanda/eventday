@@ -4,7 +4,8 @@ Base URL (lokal): `http://localhost:8082`
 Base URL (ngrok lintas-laptop): `https://<id-baru>.ngrok-free.app` → `ngrok http 8082`
 
 > **Status 2026-09-14 (rev.8):** PR #12 (HEAD `0405d44`) **lengkapi Ticket** — `GET /api/tickets/user/{email}` alias `GET /api/tickets/my-tickets?userEmail=` (dua-duanya list `TicketItem`), **baru** `GET /api/tickets/issued-detail?ticketCode=<UUID>` (payload E-Ticket → `TicketDetailResponse`), `POST /api/tickets/scan` (sama). Modul aktif: Auth + Event Catalog + Home & Search (publik) + Checkout (8) + Payment + Ticket (4) + User/Profile.
-> **Last Updated:** 2026-09-14 — sinkron PR #12 (my-tickets alias + issued-detail), lanjutan PR #11 (User/Profile 6 endpoint + logout), DB lokal `localhost:5432/eventday`.
+> **Status 2026-09-15 (rev.10):** Akar 401 checkout = **frontend** `authService.js` 6× `fetch` tanpa `credentials: 'include'` (lihat "FIX WAJIB frontend" di bawah) → cookie tak terkirim. Backend sehat (7 event PUBLISHED, `Partitioned` live, `pom.xml` java 21).
+> **Last Updated:** 2026-09-15 — sinkron rev.10 (fix frontend 401 + seed 3 event coba + `pom.xml` java 21), DB lokal `localhost:5432/eventday` (7 event PUBLISHED).
 > **ngrok:** URL `9538-2400-...ngrok-free.app` di screenshot sudah expired. Jalankan `ngrok http 8082` di laptop backend, copy URL baru, ganti `BASE` di frontend. `localhost:8082` hanya untuk 1 laptop.
 > **Response Standard:** Semua API pakai `ApiResponse.java` `{msg, status, data}` `@JsonInclude ALWAYS` — helper `created(201)/ok(200)/badRequest(400)/unauthorized(401)/forbidden(403)/notFound(404)/internalError(500)`. `SecurityConfig.java` + `GlobalExceptionHandler.java` juga pakai `ApiResponse`.
 
@@ -72,14 +73,13 @@ Alias legacy `POST /api/auth/**` juga permit.
 | 22 | GET | `/api/v1/orders/{orderId}/total-amount` | Total nominal | `200` |
 | 23 | GET | `/api/v1/orders/{orderId}/expired-time` | Batas waktu bayar | `200` |
 
-## Daftar Endpoint Payment (perlu login — Midtrans Snap REAL, §13)
+## Daftar Endpoint Payment (perlu login — mock VA, PR #9)
 
 | # | Method | Endpoint | Deskripsi | HTTP |
 |---|--------|----------|-----------|------|
-| 24 | POST | `/api/payments/charge` | `{orderId, grossAmount, customerName, customerEmail}` → Midtrans Snap → `{snapToken, redirectUrl}` | `200` |
-| 25 | POST | `/api/payments/midtrans-notification` | Webhook Midtrans (log only, belum update order) | `200` |
-
-> ⚠️ **Catatan:** `GET /payments/methods` dan `GET /payments/methods/virtual-account` sudah **DIHAPUS** dari kode. Hanya ada 2 endpoint di `PaymentController`.
+| 24 | GET | `/api/v1/payments/methods` | `VIRTUAL_ACCOUNT,E_WALLET,CREDIT_CARD` | `200` |
+| 25 | GET | `/api/v1/payments/methods/virtual-account` | Channel BCA/MANDIRI/BRI | `200` |
+| 26 | POST | `/api/v1/payments/charge` | `{orderId,paymentMethod,bankCode}` → VA `88325...`, status `WAITING_PAYMENT` | `200` |
 
 ## Daftar Endpoint Ticket (perlu login — PR #9 + PR #12, base TANPA /v1)
 
@@ -293,7 +293,24 @@ Error `400` `{"msg":"Token Google tidak valid: ...","status":400,"data":null}`
 curl -X POST localhost:8082/api/v1/auth/google -H "Content-Type: application/json" -d '{"idToken":"eyJ...GoogleIDToken"}'
 ```
 
-**Frontend GIS:** `https://accounts.google.com/gsi/client` + `data-client_id=google.client-id` → `res.credential` → `POST /google` → `Set-Cookie access_token`.
+**Frontend GIS** (client ID wajib SAMA dengan backend, copy-paste):
+```html
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<div id="g_id_onload"
+     data-client_id="875040780549-1jq8bicaq1ne1ltjt7bfjcfjo82e5dj0.apps.googleusercontent.com"
+     data-callback="onGoogleCredential"></div>
+<script>
+  function onGoogleCredential(res) {
+    fetch(`${BASE_AUTH}/google`, { // BASE_AUTH = .../api/v1/auth
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include", // WAJIB — tanpanya cookie login Google tidak tersimpan → 401
+      body: JSON.stringify({ idToken: res.credential })
+    }).then(r => r.json());
+  }
+</script>
+```
+`res.credential` → `POST /google {idToken}` → `Set-Cookie access_token`. Backend (`AuthService.java:362-364`) tolak token bila `aud != google.client-id` di atas (`Token Google aud tidak sesuai`), jadi GIS wajib pakai client ID yang sama persis.
 
 ---
 
@@ -610,25 +627,15 @@ Body `{orderId}` → status order jadi `WAITING_PAYMENT` (TIDAK cek `PENDING` du
 
 ---
 
-## 13. Payment — Midtrans Snap (perlu login, REAL gateway sandbox)
+## 13. Payment — mock Virtual Account (perlu login, bukan gateway asli)
 
 ```bash
-# Midtrans Snap — return snapToken:
-curl -b cookies.txt -X POST localhost:8082/api/payments/charge \
-  -H "Content-Type: application/json" \
-  -d '{"orderId":"<order-uuid>","grossAmount":300000,"customerName":"Budi","customerEmail":"budi@mail.com"}'
-# → {"status":200,"data":{"snapToken":"Mid-trans...","redirectUrl":"https://app.sandbox.midtrans.com/snap/v2/vtweb/..."}}
-
-# Webhook dari Midtrans (otomatis, bukan manual):
-curl -X POST localhost:8082/api/payments/midtrans-notification \
-  -H "Content-Type: application/json" \
-  -d '{"order_id":"...","transaction_status":"settlement","va_number":"..."}'
+curl -b cookies.txt localhost:8082/api/v1/payments/methods
+curl -b cookies.txt localhost:8082/api/v1/payments/methods/virtual-account
+curl -b cookies.txt -X POST localhost:8082/api/v1/payments/charge -H "Content-Type: application/json" -d '{"orderId":"<order-uuid>","paymentMethod":"VIRTUAL_ACCOUNT","bankCode":"BCA"}'
+# → {"orderNumber":"ORD-...","virtualAccountNumber":"88325...","expiredAt":"..."} + order.status = WAITING_PAYMENT
 ```
-
-- `charge` body: `{orderId, grossAmount, customerName, customerEmail}` → return `{snapToken, redirectUrl}`
-- Config (`application.properties:63-66`): `midtrans.server-key=SB-Mid-server-...`, `midtrans.snap-url=https://app.sandbox.midtrans.com/snap/v1/transactions`.
-- Frontend redirect ke `redirectUrl` untuk bayar, lalu Midtrans webhook `/api/payments/midtrans-notification` (log only, belum update order status).
-- ⚠️ `GET /payments/methods` dan `GET /payments/methods/virtual-account` sudah **DIHAPUS** dari kode.
+Syarat: order masih `PENDING`, sekali charge saja.
 
 ---
 
@@ -713,80 +720,87 @@ curl -b cookies.txt localhost:8082/api/v1/transactions/history
 
 ---
 
-## 17. Legal — Syarat & Privasi (Public, `LegalController`)
+## 16. Admin Module (perlu login **ADMIN** — `hasRole("ADMIN")`, UNCOMMITTED rev.9)
 
-| Method | Endpoint | Deskripsi | HTTP |
-|---|---|---|---|
-| GET | `/terms-conditions` | Syarat & ketentuan (statik) | `200` |
-| GET | `/privacy-policy` | Kebijakan privasi (statik) | `200` |
+> **Auth:** Semua endpoint di bawah butuh cookie/Bearer dengan role `ADMIN` (`SecurityConfig` `/admin/**` → `hasRole("ADMIN")`). CUSTOMER → `403 Forbidden`. Ambil `adminId` dari `authentication.getName()`.
 
-> **Catatan:** Controller ini mapping di root (`/terms-conditions`), BUKAN `/api/v1/terms-conditions`. `SecurityConfig` permit `/api/v1/terms-conditions` + `/api/v1/privacy-policy` — **mismatch path**! Saat ini `/api/v1/terms-conditions` → 404 (permit tapi controller tidak map sana), `/terms-conditions` → 200.
+### Dashboard — `AdminDashboardController`
 
+**GET `/admin/dashboard/metrics`** → `AdminDashboardMetricsResponse`:
 ```json
-{"msg":"Terms and conditions retrieved successfully","status":200,"data":{"title":"Syarat dan Ketentuan EventDay","content":"...","updated_at":"2026-09-14"}}
+{"msg":"Berhasil mengambil metrik admin","status":200,"data":{"totalPlatformRevenue":300000.0,"totalEvents":7,"activeEvents":7,"totalUsers":39,"totalTicketsSold":0}}
+```
+
+**GET `/admin/dashboard/recent-events`** → `List<Map>` (event terbaru platform).
+
+**GET `/admin/dashboard/recent-transactions`** → `List<TransactionHistoryResponse>` (sama shape dengan `/transactions/history`).
+
+### Users — `AdminUserController`
+
+**GET `/admin/users?role=CUSTOMER`** → `List<AdminUserListItemResponse>` (`role` opsional: CUSTOMER/ORGANIZER/ADMIN):
+```json
+{"userId":"uuid","name":"Budi Santoso","email":"budi@example.com","username":"budi_b78d","phone":"081234567890","nik":"3171012345670001","role":"CUSTOMER","authStatus":"INACTIVE","createdAt":"2026-09-02T22:41:40"}
+```
+
+**GET `/admin/users/{id}`** → `AdminUserListItemResponse` (satu user).
+
+**PATCH `/admin/users/{id}/status`** — body `{"status":"ACTIVE"}` (ACTIVE/INACTIVE/SUSPENDED, `@NotBlank`) → `{"msg":"Status pengguna berhasil diperbarui","status":200,"data":null}`.
+
+**PATCH `/admin/users/{id}/suspend`** — no body → langsung SUSPENDED + audit.
+
+### Settings — `AdminSettingsController`
+
+**GET `/admin/settings/general`** → `Map<String,String>` (nilai dari tabel `settings`; kosong `{}` jika belum di-seed).
+
+**PUT `/admin/settings/general`** — body `AdminSettingsRequest`:
+```json
+{"appName":"Eventday","contactEmail":"admin@eventday.local","adminFee":5000,"orderExpiryMinutes":15}
+```
+→ `{"msg":"Pengaturan sistem berhasil diperbarui","status":200,"data":null}` + audit.
+
+**GET `/admin/audit-logs?page=0&size=20`** → `Page<AuditLog>` (audit trail: REGISTER/LOGIN/UPDATE_PROFILE/CHANGE_PASSWORD/SUSPEND/dll).
+
+### EO Applications — `AdminEoController`
+
+**GET `/admin/eo-applications?status=UNVERIFIED`** → `List<AdminEoApplicationResponse>` (`status` opsional: UNVERIFIED/VERIFIED/REJECTED):
+```json
+{"organizerId":"uuid","userId":"uuid","nameOrganizer":"EO Konser Nusantara","userEmail":"...","userPhone":"...","npwpNumber":"...","bankName":"...","bankAccountNumber":"...","aktaPerusahaan":"...","verificationStatus":"VERIFIED","createdAt":"..."}
+```
+
+**GET `/admin/eo-applications/{id}`** → `AdminEoApplicationResponse` (satu aplikasi).
+
+**PATCH `/admin/eo-applications/{id}/status`** — body `AdminEoStatusRequest`:
+```json
+{"status":"VERIFIED","rejectionReason":null}
+```
+`status` `VERIFIED`/`REJECTED` (`@NotBlank`); `rejectionReason` wajib saat REJECTED → `{"msg":"Status verifikasi EO berhasil diperbarui","status":200,"data":null}`.
+
+**GET `/admin/eo-applications/{id}/documents/company-deed`** → `{"documentUrl":"..."}` (link akta perusahaan).
+
+```bash
+# Semua admin endpoint butuh cookie admin (login role ADMIN):
+curl -b admin-cookies.txt localhost:8082/admin/dashboard/metrics
+curl -b admin-cookies.txt "localhost:8082/admin/users?role=CUSTOMER"
+curl -b admin-cookies.txt -X PATCH localhost:8082/admin/users/<uuid>/status -H "Content-Type: application/json" -d '{"status":"ACTIVE"}'
+curl -b admin-cookies.txt -X PATCH localhost:8082/admin/users/<uuid>/suspend
+curl -b admin-cookies.txt localhost:8082/admin/settings/general
+curl -b admin-cookies.txt -X PUT localhost:8082/admin/settings/general -H "Content-Type: application/json" -d '{"appName":"Eventday","contactEmail":"a@b.c","adminFee":5000,"orderExpiryMinutes":15}'
+curl -b admin-cookies.txt "localhost:8082/admin/audit-logs?page=0&size=20"
+curl -b admin-cookies.txt "localhost:8082/admin/eo-applications?status=UNVERIFIED"
+curl -b admin-cookies.txt -X PATCH localhost:8082/admin/eo-applications/<uuid>/status -H "Content-Type: application/json" -d '{"status":"VERIFIED"}'
+curl -b admin-cookies.txt localhost:8082/admin/eo-applications/<uuid>/documents/company-deed
 ```
 
 ---
 
-## 18. Organizer / EO Module (perlu login — `OrganizerController`, `/organizer/**`)
+## ⏳ Modul Lain — SCHEMA ONLY (belum aktif)
 
-> **Status: MOCK/STUB** — semua return data statis `Map`, **belum persisten ke DB**. Gunakan untuk integrasi UI saja; logika bisnis belum final.
+| Modul | Rencana Endpoint | Status | HTTP |
+|---|---|---|---|
+| Refunds | `POST /api/v1/refunds` | Spek siap | `401/403` |
+| Legal | `GET /api/v1/terms-conditions`, `/api/v1/privacy-policy` | permitAll tapi controller BELUM ADA | `404` |
 
-| Method | Endpoint | Deskripsi |
-|---|---|---|
-| POST | `/organizer/register` | Daftar EO → `{organizer_name, verification_status: "PENDING"}` |
-| POST | `/organizer/documents/upload?type=KTP` | Upload dokumen (multipart) → `{document_type, file_name, file_size}` |
-| GET | `/organizer/status` | Status verifikasi EO (mock `PENDING`) |
-| GET | `/organizer/dashboard` | Metrics dashboard EO (mock: `total_revenue, active_events, tickets_sold`) |
-| GET | `/organizer/profile` | Profil EO (mock statis) |
-| PUT | `/organizer/profile` | Update profil (echo payload) |
-| POST | `/organizer/profile/avatar` | Upload avatar (mock URL) |
-| POST | `/organizer/profile/upload-portfolio` | Upload portofolio (mock URL) |
-| POST | `/organizer/profile/upload-deed` | Upload akta (mock URL) |
-| GET | `/organizer/profile/document` | Daftar dokumen legalitas (mock) |
-| POST | `/organizer/auth/change-password` | Ganti password EO (no-op) |
-| POST | `/organizer/auth/logout` | Logout EO (no-op) |
-| GET | `/organizer/refunds` | List refund request ke EO (mock) |
-| GET | `/organizer/refunds/detail?id=` | Detail refund (mock) |
-| PATCH | `/organizer/refunds/{id}/status` | Update status refund (echo) |
-| GET | `/organizer/bank-accounts` | Rekening EO (mock) |
-| GET | `/organizer/events/{id}/payout-balance` | Saldo payout event (mock, `eventId` Long) |
-| GET | `/organizer/payouts` | Riwayat payout (mock) |
-| POST | `/organizer/payouts` | Ajukan payout (mock) |
-| GET | `/organizer/payouts/detail?id=` | Detail payout (mock, `id` Long) |
-
----
-
-## 19. Refund Customer (perlu login — `RefundController`, `/api/**`)
-
-| Method | Endpoint | Deskripsi |
-|---|---|---|
-| POST | `/api/tickets/refund/request` (alias `/api/refund/submit`) | Ajukan refund — simpan ke `refund_requests` (REAL), body `RefundRequest{orderId, reason, bankCode, accountNumber, accountHolderName}` |
-| GET | `/api/refund/banks` | Bank pendukung BCA/MANDIRI/BNI/BRI → `BankResponse{bankCode, bankName}` |
-| GET | `/api/refund/order-summary?orderId=<uuid>` | Ringkasan refund (mock: `ticketQuantity, grossAmount, adminFee, refundableAmount`) |
-| GET | `/api/refund/refund-detail/info?refundId=<uuid>` | Detail refund dari DB (REAL) → `RefundDetailResponse` |
-| GET | `/api/refund/refund-detail/download-proof?refundId=<uuid>` | URL bukti transfer → `{proofUrl}` |
-| GET | `/api/tickets/refund/refund-history?email=<email>` | Riwayat refund (mock 1 item) |
-
-`submitRefund` ambil `customerId` dari JWT (`SecurityContextHolder`), `refundAmount` di-hardcode `290000.00` (belum dihitung dari order).
-
----
-
-## 📋 Status Semua Modul (ringkas)
-
-| Modul | Endpoint | Status |
-|---|---|---|
-| Auth | `/api/v1/auth/*` | ✅ AKTIF |
-| Events + Home + Search | `/api/v1/events/*`, `/home/*`, `/search/*` | ✅ AKTIF (publik) |
-| Checkout/Order | `/api/v1/checkout/*`, `/orders/*` | ✅ AKTIF |
-| Payment | `/api/v1/payments/*` | ✅ AKTIF — **Midtrans Snap** (§13, bukan mock VA lagi) |
-| Ticket | `/api/tickets/*` | ✅ AKTIF |
-| User/Profile | `/user/*`, `/account/*`, `/transactions/*` | ✅ AKTIF |
-| Admin | `/admin/*` | ✅ AKTIF (§16, ADMIN only; settings+eo ada di branch lain) |
-| Legal | `/terms-conditions`, `/privacy-policy` | ⚠️ AKTIF tapi path mismatch (§17) |
-| Organizer | `/organizer/*` | ⚠️ AKTIF tapi MOCK (§18) |
-| Refund | `/api/refund/*`, `/api/tickets/refund/*` | ⚠️ AKTIF sebagian (§19) |
-| Audit publik | — | internal saja (lihat `/admin/audit-logs` §16) |
+> **Sudah AKTIF (bukan schema-only lagi):** User/Profile via PR #11; **Admin module** (dashboard/users/settings/audit/eo-applications, 13 endpoint, UNCOMMITTED rev.9 — lihat §16); **Settings** via `PUT /admin/settings/general`; **Organizer verification** via `/admin/eo-applications/*`. Catatan: **register EO sisi customer** (organizer daftar mandiri) masih belum ada — admin hanya bisa memverifikasi organizer yang sudah ada.
 
 `RescheduleRequest` **dihapus** — jangan panggil.
 
@@ -873,6 +887,11 @@ DB: `users --1:1-- auth (hash+googleId+token+resetToken) --1:N-- otp` (`password
 - Lintas laptop (ngrok): `https://<id-baru>.ngrok-free.app/api/v1/auth` dari `ngrok http 8082` — ganti tiap restart ngrok. Jangan pakai `9538-...` (expired) atau `127.0.0.1:8000` (Django).
 - **Contoh salah → 401:** `BASE = 'https://xxx.ngrok-free.app'` lalu `fetch(BASE + '/register')` → request ke `/register` (tidak ada di `SecurityConfig.java:55`) → `401`. **Benar:** `BASE = 'https://xxx.ngrok-free.app/api/v1/auth'` lalu `fetch(BASE + '/register')` → `POST /api/v1/auth/register` → `201`.
 
+> **🔧 FIX WAJIB frontend — penyebab 401 checkout (verified 2026-09-15):** `authService.js` 6× `fetch` **tanpa** `credentials: 'include'` → `Set-Cookie access_token` tidak pernah tersimpan/terkirim, semua request protected `401` (`user=- auth=none`, log filter: `JWT: TIDAK ADA TOKEN`). `api.js` (`apiFetch`) + `checkoutService.js` sudah benar. Tambahkan `credentials: "include",` di tiap fetch berikut (nomor baris = copy `Downloads/authService.js`):
+> - `verify-otp` (`:179`), `resend-otp` (`:219`), `login` (`:284`), `google` (`:316`), `reset-password` ×2 (`:355` forgotPassword, `:412` resetPassword) — contoh: `fetch(\`${API_URL}/login\`, { method: "POST", headers: getHeaders(), credentials: "include", body: ... })`.
+> - Setelah edit: login ulang di **Incognito** (`Ctrl+Shift+N`) → cek `Application → Cookies → localhost:8082` ada `access_token` → checkout harus `200`.
+> - Kalau event baru tidak muncul padahal backend kirim 7 (`totalElements: 7`): `api.js`/`authService.js` default ke ngrok lama `https://174a-140-213-45-232.ngrok-free.app` (kemungkinan expired) — set `.env` `VITE_API_URL=http://localhost:8082/api/v1` + **restart `npm run dev`**, lalu cek Network → Request URL + `totalElements`.
+
 ```js
 // helper standar — token via HttpOnly Cookie, JANGAN pakai getApiBase
 const BASE_AUTH = 'https://<id-baru>.ngrok-free.app/api/v1/auth'; // ngrok untuk teman beda laptop
@@ -955,298 +974,4 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 11. Home & search publik tanpa token — bisa dites via browser/curl/`test-modul1.http`. `date` format `YYYY-MM-DD`.
 12. User/Profile & logout (PR #11): endpoint `/user/**`, `/account/change-password`, `/transactions/history` — semua perlu login (cookie/Bearer); avatar masih mock (return URL, file belum disimpan).
 ```
-
----
-
-# GAP ANALYSIS — Status Aktual vs Spec v1.3.0 + UI/UX Requests
-
-> **Terakhir diperbarui:** 15 September 2026, berdasarkan kode di branch `main` (HEAD `60fe852`).
-> **Catatan:** PDF audit (`laporan_gap_analysis_audit_rev10.pdf`) OUTDATED untuk modul Refund, Organizer, Legal, dan Payment.
-
-## LEGENDA STATUS
-
-| Simbol | Arti |
-|---|---|
-| ✅ REAL | Endpoint aktif, data persisten ke DB |
-| ⚠️ MOCK | Endpoint aktif, data statis/hardcoded (belum ke DB) |
-| ❌ BELUM | Belum ada controller/service |
-| 🗑️ DIHAPUS | Pernah ada tapi sudah dihapus dari kode |
-| 🔧 PERLU FIX | Ada tapi perlu perbaikan (body berubah, dsb) |
-
----
-
-## A. SPEC V1.3.0 (48 Endpoints) — Status per Modul
-
-### 01. Home & Search — ✅ 6/6 SELESAI
-
-| Method | Endpoint | Status | Keterangan |
-|---|---|---|---|
-| GET | `/api/v1/home/hero-banner` | ✅ REAL | `HomeSearchController` — max 5 featured |
-| GET | `/api/v1/home/event-card?page&size` | ✅ REAL | Paginated, 7 event live |
-| GET | `/api/v1/home/locations` | ✅ REAL | DISTINCT venueName |
-| GET | `/api/v1/search/results` | ✅ REAL | Multi-filter keyword/category/date |
-| GET | `/api/v1/search/locations` | ✅ REAL | Filter lokasi |
-| GET | `/api/v1/search/categories` | ✅ REAL | DISTINCT category |
-
-### 02. Events & Detail — ⚠️ 7/8 (missing 1)
-
-| Method | Endpoint | Status | Keterangan |
-|---|---|---|---|
-| GET | `/api/v1/events` | ✅ REAL | Paginated catalog |
-| GET | `/api/v1/events/featured` | ✅ REAL | Hero slider max 3 |
-| GET | `/api/v1/events/{id}` | ✅ REAL | Detail + lineup + tickets |
-| GET | `/events/detail/banner` | ✅ REAL | Field `image` di detail |
-| GET | `/events/detail/info` | ✅ REAL | Field title/date/location |
-| GET | `/events/detail/description` | ✅ REAL | Field description |
-| GET | `/events/detail/facilities` | ⚠️ REAL* | Raw string, frontend split(", ") |
-| GET | `/events/detail/lineup` | ✅ REAL | JSON populated |
-| GET | `/events/detail/tickets` | ✅ REAL | Field tickets array |
-| **POST** | **`/events/create`** | **❌ BELUM** | **Event Organizer create event baru** |
-
-### 03. Checkout & Payment — ✅ 11/11 SELESAI (Payment pakai Midtrans Snap)
-
-| Method | Endpoint | Status | Keterangan |
-|---|---|---|---|
-| POST | `/api/v1/checkout/initiate` | ✅ REAL | `@JsonIgnoreProperties` fix lazy-proxy |
-| POST | `/api/v1/checkout/attendees` | ✅ REAL | Simpan ke `order_attendees` |
-| POST | `/api/v1/checkout/calculation` | ✅ REAL | Tax 10%, diskon |
-| GET | `/api/v1/checkout/summary` | ✅ REAL | Order summary |
-| POST | `/api/v1/checkout/process` | ✅ REAL | Guard anti-downgrade |
-| GET | `/api/v1/orders/status` | ✅ REAL | Polling status |
-| GET | `/api/v1/orders/{id}/total-amount` | ✅ REAL | Total amount |
-| GET | `/api/v1/orders/{id}/expired-time` | ✅ REAL | Expired time |
-| POST | `/api/payments/charge` | ✅ REAL | **Midtrans Snap** (bukan mock VA) |
-| POST | `/api/payments/midtrans-notification` | ⚠️ MOCK | Webhook log only, belum update order |
-| GET | `/payments/methods` | 🗑️ DIHAPUS | Tidak ada di kode |
-| GET | `/payments/methods/virtual-account` | 🗑️ DIHAPUS | Tidak ada di kode |
-
-### 04. My Tickets & E-Ticket — ✅ 4/4 SELESAI
-
-| Method | Endpoint | Status | Keterangan |
-|---|---|---|---|
-| GET | `/api/tickets/user/{email}` | ✅ REAL | List tiket (kosong sampai `generateTicket` dipanggil) |
-| GET | `/api/tickets/my-tickets?userEmail=` | ✅ REAL | Alias PR #12 |
-| GET | `/api/tickets/issued-detail?ticketCode=` | ✅ REAL | E-Ticket detail |
-| POST | `/api/tickets/scan` | ✅ REAL | QR scan |
-| GET | `/tickets/view-ticket` | — | Frontend React only |
-| GET | `/tickets/download-qr` | — | Frontend React only |
-
-### 05. Refund — ⚠️ 6/7 (1 endpoint perlu perbaikan)
-
-| Method | Endpoint | Status | Keterangan |
-|---|---|---|---|
-| POST | `/api/tickets/refund/request` | ✅ REAL | Submit ke DB (`refund_requests`) |
-| POST | `/api/refund/submit` | ✅ REAL | Alias dari `/tickets/refund/request` |
-| GET | `/api/refund/banks` | ✅ REAL | BCA/MANDIRI/BNI/BRI |
-| GET | `/api/refund/order-summary` | ⚠️ MOCK | Hardcoded `290000.00` |
-| GET | `/api/refund/refund-detail/info` | ✅ REAL | Dari DB |
-| GET | `/api/refund/refund-detail/download-proof` | ⚠️ MOCK | Return `proofUrl` kosong |
-| GET | `/api/tickets/refund/refund-history` | ⚠️ MOCK | Hardcoded 1 item |
-
-### 06. User Profile & Transaksi — ✅ 6/6 SELESAI
-
-| Method | Endpoint | Status | Keterangan |
-|---|---|---|---|
-| GET | `/api/v1/user/profile` | ✅ REAL | Biodata profil |
-| PUT | `/api/v1/user/profile/save` | ✅ REAL | Update name/phone/NIK |
-| PUT | `/api/v1/account/change-password` | ✅ REAL | + email notif |
-| POST | `/api/v1/user/avatar` | ⚠️ MOCK | Return mock URL |
-| POST | `/api/v1/user/logout` | ✅ REAL | Null token + hapus cookie |
-| GET | `/api/v1/transactions/history` | ✅ REAL | Order history |
-
-### 07. Organizer & Legal — ⚠️ 6/6 ADA (semua MOCK/stub)
-
-| Method | Endpoint | Status | Keterangan |
-|---|---|---|---|
-| POST | `/organizer/register` | ⚠️ MOCK | Return statis |
-| POST | `/organizer/documents/upload` | ⚠️ MOCK | Return filename |
-| GET | `/organizer/status` | ⚠️ MOCK | Hardcoded PENDING |
-| GET | `/organizer/dashboard` | ⚠️ MOCK | Hardcoded metrics |
-| GET | `/terms-conditions` | ✅ REAL | Static content |
-| GET | `/privacy-policy` | ✅ REAL | Static content |
-
----
-
-## B. PERMINTAAN BARU UI/UX (31 Endpoints) — Status per Area
-
-### B1. Organizer Portal — 16 Endpoints
-
-| Area | Method | Endpoint | Status | Keterangan |
-|---|---|---|---|---|
-| **Profil** | GET | `/organizer/profile` | ⚠️ MOCK | Static profile |
-| | PUT | `/organizer/profile` | ⚠️ MOCK | Echo payload |
-| | POST | `/organizer/profile/avatar` | ⚠️ MOCK | Mock URL |
-| | POST | `/organizer/profile/upload-portfolio` | ⚠️ MOCK | Mock URL |
-| | POST | `/organizer/profile/upload-deed` | ⚠️ MOCK | Mock URL |
-| | GET | `/organizer/profile/document` | ⚠️ MOCK | Static docs |
-| **Auth** | POST | `/organizer/auth/change-password` | ⚠️ MOCK | No-op |
-| | POST | `/organizer/auth/logout` | ⚠️ MOCK | No-op |
-| **Refund** | GET | `/organizer/refunds` | ⚠️ MOCK | Static list |
-| | GET | `/organizer/refunds/detail` | ⚠️ MOCK | Static detail |
-| | PATCH | `/organizer/refunds/{id}/status` | ⚠️ MOCK | Echo status |
-| **Payout** | GET | `/organizer/bank-accounts` | ⚠️ MOCK | Static bank |
-| | GET | `/organizer/events/{id}/payout-balance` | ⚠️ MOCK | Static balance |
-| | GET | `/organizer/payouts` | ⚠️ MOCK | Static list |
-| | POST | `/organizer/payouts` | ⚠️ MOCK | Static response |
-| | GET | `/organizer/payouts/detail` | ⚠️ MOCK | Static detail |
-
-### B2. Organizer Events — 6 Endpoints (❌ BELUM ADA)
-
-| Area | Method | Endpoint | Status | Keterangan |
-|---|---|---|---|---|
-| **Manajemen Event** | GET | `/organizer/events` | ❌ BELUM | List event milik EO |
-| | POST | `/organizer/events` | ❌ BELUM | Buat event baru |
-| | PUT | `/organizer/events/update` | ❌ BELUM | Update event |
-| | POST | `/organizer/events/publish` | ❌ BELUM | Publish event |
-| | GET | `/organizer/events/draft` | ❌ BELUM | Draft events |
-| | GET | `/organizer/events/{id}/sales-summary` | ❌ BELUM | Ringkasan penjualan |
-
-### B3. Organizer Dashboard — 3 Endpoints (❌ BELUM ADA)
-
-| Area | Method | Endpoint | Status | Keterangan |
-|---|---|---|---|---|
-| **Dashboard** | GET | `/organizer/dashboard/metrics` | ❌ BELUM | Metrics detail |
-| | GET | `/organizer/dashboard/recent-events` | ❌ BELUM | Event terbaru |
-| | GET | `/organizer/dashboard/recent-transactions` | ❌ BELUM | Transaksi terbaru |
-
-### B4. Admin EO Applications — 4 Endpoints (❌ BELUM ADA)
-
-| Area | Method | Endpoint | Status | Keterangan |
-|---|---|---|---|---|
-| **Verifikasi EO** | GET | `/admin/eo-applications` | ❌ BELUM | List aplikasi EO |
-| | GET | `/admin/eo-applications/detail` | ❌ BELUM | Detail aplikasi |
-| | PATCH | `/admin/eo-applications/status` | ❌ BELUM | Approve/reject |
-| | GET | `/admin/eo-applications/{id}/documents/company-deed` | ❌ BELUM | Dokumen akta |
-
-### B5. Admin Payouts — 4 Endpoints (❌ BELUM ADA)
-
-| Area | Method | Endpoint | Status | Keterangan |
-|---|---|---|---|---|
-| **Pencairan Dana** | GET | `/admin/payouts` | ❌ BELUM | List payout |
-| | GET | `/admin/payouts/detail` | ❌ BELUM | Detail payout |
-| | PATCH | `/admin/payouts/status` | ❌ BELUM | Approve/reject |
-| | GET | `/admin/payouts/{id}/documents/reconciliation` | ❌ BELUM | Dokumen rekonsiliasi |
-
-### B6. Admin Audit & Settings — 4 Endpoints (❌ BELUM ADA)
-
-| Area | Method | Endpoint | Status | Keterangan |
-|---|---|---|---|---|
-| **Audit** | GET | `/admin/audit-logs` | ❌ BELUM | Log jejak audit |
-| | PUT | `/admin/audit-logs/export` | ❌ BELUM | Export audit log |
-| **Settings** | GET | `/admin/settings/general` | ❌ BELUM | Pengaturan sistem |
-| | POST | `/admin/settings/upload-logo` | ❌ BELUM | Upload logo |
-
-### B7. Admin Dashboard & Users — ✅ 7/7 SUDAH ADA
-
-| Area | Method | Endpoint | Status | Keterangan |
-|---|---|---|---|---|
-| **Dashboard** | GET | `/admin/dashboard/metrics` | ✅ REAL | `AdminDashboardService` |
-| | GET | `/admin/dashboard/recent-events` | ✅ REAL | 5 event terbaru |
-| | GET | `/admin/dashboard/recent-transactions` | ✅ REAL | 10 transaksi terbaru |
-| **Users** | GET | `/admin/users` | ✅ REAL | Filter by role |
-| | GET | `/admin/users/{id}` | ✅ REAL | Detail user |
-| | PATCH | `/admin/users/{id}/status` | ✅ REAL | ACTIVE/INACTIVE/SUSPENDED |
-| | PATCH | `/admin/users/{id}/suspend` | ✅ REAL | Suspend + cabut JWT |
-
----
-
-## C. RINGKASAN KEBUTUHAN IMPLEMENTASI
-
-### Yang perlu dibuat BARU (❌ BELUM ADA) — 21 endpoint:
-
-| # | Endpoint | Modul | Prioritas |
-|---|---|---|---|
-| 1 | `POST /events/create` | Events | Tinggi |
-| 2 | `GET /organizer/events` | Organizer Events | Tinggi |
-| 3 | `POST /organizer/events` | Organizer Events | Tinggi |
-| 4 | `PUT /organizer/events/update` | Organizer Events | Tinggi |
-| 5 | `POST /organizer/events/publish` | Organizer Events | Tinggi |
-| 6 | `GET /organizer/events/draft` | Organizer Events | Sedang |
-| 7 | `GET /organizer/events/{id}/sales-summary` | Organizer Events | Sedang |
-| 8 | `GET /organizer/dashboard/metrics` | Organizer Dashboard | Sedang |
-| 9 | `GET /organizer/dashboard/recent-events` | Organizer Dashboard | Sedang |
-| 10 | `GET /organizer/dashboard/recent-transactions` | Organizer Dashboard | Sedang |
-| 11 | `GET /admin/eo-applications` | Admin EO | Tinggi |
-| 12 | `GET /admin/eo-applications/detail` | Admin EO | Tinggi |
-| 13 | `PATCH /admin/eo-applications/status` | Admin EO | Tinggi |
-| 14 | `GET /admin/eo-applications/{id}/documents/company-deed` | Admin EO | Sedang |
-| 15 | `GET /admin/payouts` | Admin Payout | Tinggi |
-| 16 | `GET /admin/payouts/detail` | Admin Payout | Tinggi |
-| 17 | `PATCH /admin/payouts/status` | Admin Payout | Tinggi |
-| 18 | `GET /admin/payouts/{id}/documents/reconciliation` | Admin Payout | Sedang |
-| 19 | `GET /admin/audit-logs` | Admin Audit | Sedang |
-| 20 | `PUT /admin/audit-logs/export` | Admin Audit | Rendah |
-| 21 | `GET /admin/settings/general` | Admin Settings | Sedang |
-| 22 | `POST /admin/settings/upload-logo` | Admin Settings | Rendah |
-
-### Yang perlu di-upgrade dari MOCK ke REAL — 18 endpoint:
-
-| # | Endpoint | Modul | Yang perlu diubah |
-|---|---|---|---|
-| 1 | `POST /organizer/register` | Organizer | Simpan ke DB `organizers` |
-| 2 | `POST /organizer/documents/upload` | Organizer | Simpan file ke storage |
-| 3 | `GET /organizer/status` | Organizer | Baca dari DB |
-| 4 | `GET /organizer/dashboard` | Organizer | Query dari DB |
-| 5 | `GET /organizer/profile` | Organizer | Baca dari DB |
-| 6 | `PUT /organizer/profile` | Organizer | Update DB |
-| 7 | `POST /organizer/profile/avatar` | Organizer | Simpan file |
-| 8 | `POST /organizer/profile/upload-portfolio` | Organizer | Simpan file |
-| 9 | `POST /organizer/profile/upload-deed` | Organizer | Simpan file |
-| 10 | `GET /organizer/profile/document` | Organizer | Baca dari DB |
-| 11 | `POST /organizer/auth/change-password` | Organizer | BCrypt + update DB |
-| 12 | `POST /organizer/auth/logout` | Organizer | Null token |
-| 13 | `GET /organizer/refunds` | Organizer | Query dari `refund_requests` |
-| 14 | `GET /organizer/refunds/detail` | Organizer | Query dari DB |
-| 15 | `GET /organizer/bank-accounts` | Organizer | Baca dari DB |
-| 16 | `GET /organizer/payouts` | Organizer | Query dari DB |
-| 17 | `POST /organizer/payouts` | Organizer | Simpan ke DB |
-| 18 | `GET /organizer/payouts/detail` | Organizer | Query dari DB |
-
-### Yang perlu diperbaiki — 4 endpoint:
-
-| # | Endpoint | Issue |
-|---|---|---|
-| 1 | `GET /api/refund/order-summary` | Hardcoded `290000.00` — harus query dari order |
-| 2 | `GET /api/refund/refund-detail/download-proof` | Return `proofUrl` kosong |
-| 3 | `GET /api/tickets/refund/refund-history` | Hardcoded 1 item — harus query dari DB |
-| 4 | `POST /api/payments/midtrans-notification` | Log only — belum update order status ke PAID |
-
-### Services yang belum ada (perlu dibuat):
-
-| Service | Modul | Fungsi |
-|---|---|---|
-| `EventCreationService` | Events | CRUD event baru (atau extend `EventService`) |
-| `OrganizerEventService` | Organizer Events | Manajemen event milik EO |
-| `OrganizerDashboardService` | Organizer Dashboard | Metrics & recent dari DB |
-| `AdminEoService` | Admin EO | Verifikasi aplikasi EO |
-| `AdminPayoutService` | Admin Payout | Validasi & approve payout |
-| `AdminAuditService` | Admin Audit | Log jejak & export |
-| `AdminSettingsService` | Admin Settings | Pengaturan sistem |
-| `PayoutService` | Organizer Payout | Pengajuan & riwayat payout |
-
-### Entity/DTO yang belum ada (perlu dibuat):
-
-| Entity/DTO | Modul | Keterangan |
-|---|---|---|
-| `OrganizerEvent` | Events | Entity event milik EO |
-| `Payout` | Payout | Entity payout |
-| `PayoutDocument` | Payout | Entity dokumen rekonsiliasi |
-| `EoApplication` | Admin EO | Entity aplikasi EO |
-| `AdminAuditLog` | Admin Audit | Entity audit log (atau extend `AuditLog`) |
-| `AdminSettings` | Admin Settings | Entity settings (atau extend `Settings`) |
-
----
-
-## D. CATATAN PENTING UNTUK AI AGENT
-
-1. **Branch `main`** (HEAD `60fe852`) adalah source of truth. `AdminSettingsController` + `AdminEoController` ADA DI BRANCH `feat/admin-eo-audit` tapi **TIDAK ADA DI main**.
-2. **PaymentController** hanya punya 2 endpoint: `POST /charge` (Midtrans Snap) + `POST /midtrans-notification` (webhook). `GET /payments/methods` dan `GET /payments/methods/virtual-account` sudah **DIHAPUS**.
-3. **OrganizerController** punya 21 endpoint tapi **SEMUA MOCK/stub** — semua return `Map<String, Object>` statis, belum persisten ke DB.
-4. **RefundController** punya 6 endpoint — submit **REAL** ke DB, sisanya mock.
-5. **LegalController** punya 2 endpoint — static content (bukan `/api/v1/...` tapi `/terms-conditions`).
-6. **generateTicket()** di `TicketService` belum dipanggil siapapun → my-tickets kosong.
-7. **SecurityConfig**: `/organizer/**`, `/api/refund/**`, `/api/tickets/refund/**` = authenticated. `/terms-conditions`, `/privacy-policy` = public (tapi path mismatch dengan `/api/v1/...`).
-8. **DTO `PaymentChargeRequest` / `PaymentChargeResponse`** mungkin sudah tidak akurat — charge sekarang pakai `Map` langsung, return `{snapToken, redirectUrl}`.
-9. **Entity `RefundRequestEntity`** (bukan `RefundRequest`) — `RefundRequest` di dto/ adalah DTO request, bukan entity.
-10. **`order_attendees`** tabel ke-13, dibuat Hibernate `ddl-auto=update`, tidak ada di V1 migration.
 
