@@ -14,4 +14,18 @@ public interface RefundRepository extends JpaRepository<RefundRequestEntity, UUI
 
     @Query("SELECT r FROM RefundRequestEntity r WHERE r.customerId = :customerId ORDER BY r.createdAt DESC")
     List<RefundRequestEntity> findByCustomerId(@Param("customerId") UUID customerId);
+
+    @Query("SELECT r FROM RefundRequestEntity r WHERE r.organizerId = :organizerId ORDER BY r.createdAt DESC")
+    List<RefundRequestEntity> findByOrganizerId(@Param("organizerId") UUID organizerId);
+
+    @Query("SELECT r FROM RefundRequestEntity r WHERE r.status = :status ORDER BY r.createdAt DESC")
+    List<RefundRequestEntity> findByStatus(@Param("status") String status);
+
+    @Query("SELECT r FROM RefundRequestEntity r WHERE r.organizerId = :organizerId AND r.status = :status ORDER BY r.createdAt DESC")
+    List<RefundRequestEntity> findByOrganizerIdAndStatus(
+            @Param("organizerId") UUID organizerId,
+            @Param("status") String status);
+
+    @Query("SELECT r FROM RefundRequestEntity r ORDER BY r.createdAt DESC")
+    List<RefundRequestEntity> findAllByOrderByCreatedAtDesc();
 }
