@@ -22,6 +22,7 @@ public class LegalController {
     }
 
     @GetMapping("/privacy-policy")
+    
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPrivacyPolicy() {
         Map<String, Object> data = legalService.getPrivacyPolicy();
         return ResponseEntity.ok(ApiResponse.ok("Privacy policy retrieved successfully", data));
