@@ -9,9 +9,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
-@RequestMapping("/organizer")
+@RequestMapping({"/api/v1/organizer", "/organizer"})
 @RequiredArgsConstructor
 public class OrganizerController {
 
@@ -31,7 +32,6 @@ public class OrganizerController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> uploadDocument(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "type", defaultValue = "KTP") String documentType) {
-
         Map<String, Object> data = organizerService.uploadDocument(file, documentType);
         return ResponseEntity.ok(ApiResponse.ok("Dokumen berhasil diunggah", data));
     }
@@ -49,7 +49,60 @@ public class OrganizerController {
     }
 
     // ==========================================
-    // PERMINTAAN UI/UX: 1. PROFIL & LEGALITAS EO
+    // DASHBOARD EO METRICS & ACTIVITIES (REAL DB)
+    // ==========================================
+
+    @GetMapping("/dashboard/metrics")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getOrganizerDashboardMetrics() {
+        return ResponseEntity.ok(ApiResponse.ok("Metrik dashboard organizer berhasil diambil", organizerService.getOrganizerDashboardMetrics()));
+    }
+
+    @GetMapping("/dashboard/recent-events")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getRecentEvents() {
+        return ResponseEntity.ok(ApiResponse.ok("Event terbaru organizer berhasil diambil", organizerService.getRecentEvents()));
+    }
+
+    @GetMapping("/dashboard/recent-transactions")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getRecentTransactions() {
+        return ResponseEntity.ok(ApiResponse.ok("Transaksi terbaru berhasil diambil", organizerService.getRecentTransactions()));
+    }
+
+    // ==========================================
+    // MANAJEMEN EVENT EO (REAL PERSISTEN DB)
+    // ==========================================
+
+    @GetMapping("/events")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getOrganizerEvents() {
+        return ResponseEntity.ok(ApiResponse.ok("Daftar event organizer berhasil diambil", organizerService.getOrganizerEvents()));
+    }
+
+    @PostMapping("/events")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createEvent(@RequestBody Map<String, Object> request) {
+        return ResponseEntity.status(201).body(ApiResponse.ok("Event berhasil dibuat", organizerService.createEvent(request)));
+    }
+
+    @PutMapping("/events/update")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateEvent(@RequestBody Map<String, Object> request) {
+        return ResponseEntity.ok(ApiResponse.ok("Event berhasil diperbarui", organizerService.updateEvent(request)));
+    }
+
+    @PostMapping("/events/publish")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> publishEvent(@RequestBody Map<String, Object> request) {
+        return ResponseEntity.ok(ApiResponse.ok("Event berhasil dipublikasikan", organizerService.publishEvent(request)));
+    }
+
+    @GetMapping("/events/draft")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getDraftEvents() {
+        return ResponseEntity.ok(ApiResponse.ok("Daftar draft event berhasil diambil", organizerService.getDraftEvents()));
+    }
+
+    @GetMapping("/events/{id}/sales-summary")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getEventSalesSummary(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok(ApiResponse.ok("Ringkasan penjualan event berhasil diambil", organizerService.getEventSalesSummary(id)));
+    }
+
+    // ==========================================
+    // PROFIL & LEGALITAS EO
     // ==========================================
 
     @GetMapping("/profile")
@@ -83,7 +136,7 @@ public class OrganizerController {
     }
 
     // ==========================================
-    // PERMINTAAN UI/UX: 2. AUTENTIKASI EO
+    // AUTENTIKASI EO
     // ==========================================
 
     @PostMapping("/auth/change-password")
@@ -99,7 +152,7 @@ public class OrganizerController {
     }
 
     // ==========================================
-    // PERMINTAAN UI/UX: 3. MANAJEMEN REFUND EO
+    // MANAJEMEN REFUND EO
     // ==========================================
 
     @GetMapping("/refunds")
@@ -120,7 +173,7 @@ public class OrganizerController {
     }
 
     // ==========================================
-    // PERMINTAAN UI/UX: 4. PAYOUT & SALDO EO
+    // PAYOUT & SALDO EO
     // ==========================================
 
     @GetMapping("/bank-accounts")
@@ -144,7 +197,7 @@ public class OrganizerController {
     }
 
     @GetMapping("/payouts/detail")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getPayoutDetail(@RequestParam("id") Long id) {
-        return ResponseEntity.ok(ApiResponse.ok("Detail payout berhasil diambil", organizerService.getPayoutDetail(id)));
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPayoutDetail(@RequestParam("id") String id) {
+        return ResponseEntity.ok(ApiResponse.ok("Detail payout berhasil diambil", organizerService.getPayoutDetailByString(id)));
     }
 }
