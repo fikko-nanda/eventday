@@ -4,6 +4,7 @@ import com.example.eventday.dto.ApiResponse;
 import com.example.eventday.service.MidtransService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,18 +16,23 @@ import java.util.Map;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/payments")
+@RequestMapping({"/api/payments", "/api/v1/payments"})
 @RequiredArgsConstructor
 public class PaymentController {
 
     private final MidtransService midtransService;
 
     @PostMapping("/charge")
-    public ResponseEntity<ApiResponse<Map<String, String>>> processPayment(@RequestBody Map<String, Object> request) {
-        String orderId = (String) request.get("orderId");
+    public ResponseEntity<ApiResponse<?>> processPayment(@RequestBody Map<String, Object> request) {
+        if (request == null || !request.containsKey("orderId") || !request.containsKey("grossAmount")) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.success("Request body tidak valid: 'orderId' dan 'grossAmount' wajib diisi", null));
+        }
+
+        String orderId = String.valueOf(request.get("orderId"));
         BigDecimal grossAmount = new BigDecimal(request.get("grossAmount").toString());
-        String customerName = (String) request.get("customerName");
-        String customerEmail = (String) request.get("customerEmail");
+        String customerName = request.get("customerName") != null ? request.get("customerName").toString() : "";
+        String customerEmail = request.get("customerEmail") != null ? request.get("customerEmail").toString() : "";
 
         Map<String, String> midtransResponse = midtransService.createSnapTransaction(orderId, grossAmount, customerName, customerEmail);
 
