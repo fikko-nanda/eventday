@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -52,5 +53,14 @@ public class EventController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.notFound(e.getMessage()));
         }
+    }
+
+    @PostMapping("/create")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createEvent(@RequestBody Map<String, Object> request) {
+        Map<String, Object> data = Map.of(
+            "eventId", UUID.randomUUID().toString(),
+            "status", "DRAFT"
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Event berhasil dibuat", data));
     }
 }

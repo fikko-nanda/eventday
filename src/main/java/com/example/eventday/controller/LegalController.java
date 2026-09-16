@@ -17,13 +17,13 @@ public class LegalController {
 
     private final LegalService legalService;
 
-    @GetMapping({"/terms-conditions", "/api/v1/terms-conditions"})
+    @GetMapping({ "/terms-conditions", "/api/v1/terms-conditions" })
     public ResponseEntity<ApiResponse<Map<String, Object>>> getTermsConditions() {
         Map<String, Object> data = legalService.getTermsAndConditions();
         return ResponseEntity.ok(ApiResponse.ok("Terms and conditions retrieved successfully", data));
     }
 
-    @GetMapping({"/privacy-policy", "/api/v1/privacy-policy"})
+    @GetMapping({ "/privacy-policy", "/api/v1/privacy-policy" })
 
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPrivacyPolicy() {
         Map<String, Object> data = legalService.getPrivacyPolicy();
