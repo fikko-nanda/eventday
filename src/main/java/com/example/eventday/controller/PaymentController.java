@@ -24,14 +24,27 @@ public class PaymentController {
 
     @PostMapping("/charge")
     public ResponseEntity<ApiResponse<?>> processPayment(@RequestBody Map<String, Object> request) {
-        if (request == null || !request.containsKey("orderId") || !request.containsKey("grossAmount")) {
+        if (request == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.success("Request body tidak valid: 'orderId' dan 'grossAmount' wajib diisi", null));
+                    .body(ApiResponse.success("Request body tidak boleh kosong", null));
         }
 
-        String orderId = String.valueOf(request.get("orderId"));
-        BigDecimal grossAmount = new BigDecimal(request.get("grossAmount").toString());
-        String customerName = request.get("customerName") != null ? request.get("customerName").toString() : "";
+        // Fleksibel membaca orderId (orderId atau order_id)
+        String orderId = request.get("orderId") != null ? request.get("orderId").toString()
+                : (request.get("order_id") != null ? request.get("order_id").toString() : null);
+
+        // Fleksibel membaca grossAmount (grossAmount, gross_amount, atau amount)
+        Object amountObj = request.get("grossAmount") != null ? request.get("grossAmount")
+                : (request.get("gross_amount") != null ? request.get("gross_amount") : request.get("amount"));
+
+        if (orderId == null || amountObj == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.success("Request body wajib menyertakan 'orderId'/'order_id' dan 'grossAmount'/'amount'", null));
+        }
+
+        BigDecimal grossAmount = new BigDecimal(amountObj.toString());
+        String customerName = request.get("customerName") != null ? request.get("customerName").toString()
+                : (request.get("customer_name") != null ? request.get("customer_name").toString() : "");
         String customerEmail = request.get("customerEmail") != null ? request.get("customerEmail").toString() : "";
 
         Map<String, String> midtransResponse = midtransService.createSnapTransaction(orderId, grossAmount, customerName, customerEmail);
@@ -45,12 +58,6 @@ public class PaymentController {
         String transactionStatus = (String) notification.get("transaction_status");
 
         log.info("Notifikasi Midtrans diterima untuk Order ID: {} dengan status: {}", orderId, transactionStatus);
-
-        if ("settlement".equals(transactionStatus) || "capture".equals(transactionStatus)) {
-            // Logic update order status -> PAID
-        } else if ("cancel".equals(transactionStatus) || "expire".equals(transactionStatus)) {
-            // Logic update order status -> EXPIRED/CANCELLED
-        }
 
         return ResponseEntity.ok(ApiResponse.success("Notifikasi Midtrans berhasil diproses", "OK"));
     }
