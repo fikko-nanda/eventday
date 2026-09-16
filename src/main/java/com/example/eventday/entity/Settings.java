@@ -21,7 +21,7 @@ public class Settings {
     @Column(name = "settings_key", nullable = false, unique = true, length = 50, columnDefinition = "VARCHAR(50)")
     private String settingsKey;
 
-    @Column(name = "settings_value", nullable = false, length = 50, columnDefinition = "VARCHAR(50)")
+    @Column(name = "settings_value", nullable = false, length = 255, columnDefinition = "VARCHAR(255)")
     private String settingsValue;
 
     @Column(columnDefinition = "TEXT")
