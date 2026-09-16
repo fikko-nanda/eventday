@@ -66,8 +66,11 @@ public class SecurityConfig {
                 // Modul 02: Katalog Event Publik
                 .requestMatchers("/api/v1/events/**").permitAll()
 
-                // Modul Legal & Informasi Statis (Publik)
-                .requestMatchers("/api/v1/terms-conditions", "/api/v1/privacy-policy").permitAll()
+                // Modul Legal & Informasi Statis (Publik) — dual alias root + /api/v1 (LegalController)
+                .requestMatchers("/terms-conditions", "/privacy-policy", "/api/v1/terms-conditions", "/api/v1/privacy-policy").permitAll()
+
+                // Webhook Midtrans — harus publik (Midtrans server tidak punya JWT)
+                .requestMatchers("/api/payments/midtrans-notification").permitAll()
 
                 // Modul Admin/Superadmin — hanya ROLE_ADMIN (filter set ROLE_<role> dari JWT)
                 .requestMatchers("/admin/**").hasRole("ADMIN")

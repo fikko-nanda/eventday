@@ -5,24 +5,26 @@ import com.example.eventday.service.LegalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
 @RestController
+@RequestMapping
 @RequiredArgsConstructor
 public class LegalController {
 
     private final LegalService legalService;
 
-    @GetMapping("/terms-conditions")
+    @GetMapping({"/terms-conditions", "/api/v1/terms-conditions"})
     public ResponseEntity<ApiResponse<Map<String, Object>>> getTermsConditions() {
         Map<String, Object> data = legalService.getTermsAndConditions();
         return ResponseEntity.ok(ApiResponse.ok("Terms and conditions retrieved successfully", data));
     }
 
-    @GetMapping("/privacy-policy")
-    
+    @GetMapping({"/privacy-policy", "/api/v1/privacy-policy"})
+
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPrivacyPolicy() {
         Map<String, Object> data = legalService.getPrivacyPolicy();
         return ResponseEntity.ok(ApiResponse.ok("Privacy policy retrieved successfully", data));

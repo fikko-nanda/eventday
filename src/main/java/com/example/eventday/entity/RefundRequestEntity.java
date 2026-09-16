@@ -25,7 +25,7 @@ public class RefundRequestEntity {
     @Column(name = "customer_id")
     private UUID customerId;
 
-    @Column(name = "organizer_id", nullable = false)
+    @Column(name = "organizer_id")
     private UUID organizerId;
 
     @Column(name = "refund_amount", precision = 12, scale = 2)

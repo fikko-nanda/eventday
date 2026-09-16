@@ -74,9 +74,26 @@ public class UserController {
         if (file.isEmpty()) {
             return ApiResponse.badRequest("File avatar tidak boleh kosong!");
         }
-        // Placeholder return URL mock:
-        String mockUrl = "/uploads/avatars/" + UUID.randomUUID() + "_" + file.getOriginalFilename();
-        return ApiResponse.ok("Avatar berhasil diperbarui", mockUrl);
+        // Validasi type & size (5MB)
+        String ct = file.getContentType();
+        if (ct != null && !ct.startsWith("image/")) {
+            return ApiResponse.badRequest("File harus berupa gambar (PNG/JPG/JPEG)");
+        }
+        if (file.getSize() > 5 * 1024 * 1024) {
+            return ApiResponse.badRequest("Ukuran file maksimal 5MB");
+        }
+        try {
+            java.nio.file.Path dir = java.nio.file.Paths.get("uploads/avatars");
+            java.nio.file.Files.createDirectories(dir);
+            String safeName = file.getOriginalFilename() != null ? file.getOriginalFilename().replaceAll("[^a-zA-Z0-9._-]", "_") : "avatar.png";
+            String filename = UUID.randomUUID() + "_" + safeName;
+            java.nio.file.Path target = dir.resolve(filename);
+            java.nio.file.Files.copy(file.getInputStream(), target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            String url = "/uploads/avatars/" + filename;
+            return ApiResponse.ok("Avatar berhasil diperbarui", url);
+        } catch (Exception e) {
+            return ApiResponse.badRequest("Gagal menyimpan avatar: " + e.getMessage());
+        }
     }
 
     @PostMapping("/user/logout")

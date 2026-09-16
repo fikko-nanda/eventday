@@ -28,9 +28,9 @@ public class RefundController {
         return ResponseEntity.ok(ApiResponse.success("Pengajuan refund berhasil dibuat", response));
     }
 
-    // Spec v1.3.0: /refund/banks
+    // Spec v1.3.0: /refund/banks — now returns enriched Map list for frontend dropdown (bankCode/bankName/logoUrl)
     @GetMapping("/refund/banks")
-    public ResponseEntity<ApiResponse<List<BankResponse>>> getSupportedBanks() {
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getSupportedBanks() {
         return ResponseEntity.ok(ApiResponse.success("Daftar bank pendukung", refundService.getSupportedBanks()));
     }
 
