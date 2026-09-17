@@ -57,23 +57,23 @@ public class SecurityConfig {
                 .requestMatchers("/", "/error").permitAll()
 
                 // Modul Auth (Login, Register, OTP, Google)
-                .requestMatchers("/api/v1/auth/**", "/api/auth/**").permitAll()
+                .requestMatchers("/api/auth/**").permitAll()
 
                 // Modul 01: Home & Search (Publik)
-                .requestMatchers("/api/v1/home/**").permitAll()
-                .requestMatchers("/api/v1/search/**").permitAll()
+                .requestMatchers("/api/home/**").permitAll()
+                .requestMatchers("/api/search/**").permitAll()
 
                 // Modul 02: Katalog Event Publik
-                .requestMatchers("/api/v1/events/**").permitAll()
+                .requestMatchers("/api/events/**").permitAll()
 
-                // Modul Legal & Informasi Statis (Publik) — dual alias root + /api/v1 (LegalController)
-                .requestMatchers("/terms-conditions", "/privacy-policy", "/api/v1/terms-conditions", "/api/v1/privacy-policy").permitAll()
+                // Modul Legal & Informasi Statis (Publik) — dual alias root + /api (LegalController)
+                .requestMatchers("/terms-conditions", "/privacy-policy", "/api/terms-conditions", "/api/privacy-policy").permitAll()
 
                 // Webhook Midtrans — harus publik (Midtrans server tidak punya JWT)
                 .requestMatchers("/api/payments/midtrans-notification").permitAll()
 
-                // Modul Admin/Superadmin — hanya ROLE_ADMIN (filter set ROLE_<role> dari JWT)
-                .requestMatchers("/admin/**").hasRole("ADMIN")
+                // Modul Admin/Superadmin — hanya ROLE_ADMIN (filter set ROLE_<role> dari JWT) — dual alias /admin + /api/admin
+                .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
 
                 // Semua endpoint lain (Checkout, Payment, My Tickets, Profile, Organizer) wajib login
                 .anyRequest().authenticated()
@@ -82,4 +82,5 @@ public class SecurityConfig {
 
         return http.build();
     }
+    
 }

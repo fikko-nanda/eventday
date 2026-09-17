@@ -27,7 +27,7 @@ public class HomeSearchController {
 
     // ===== MODUL HOME =====
 
-    @GetMapping("/api/v1/home/hero-banner")
+    @GetMapping("/api/home/hero-banner")
     public ResponseEntity<ApiResponse<List<HeroBannerResponse>>> getHeroBanner() {
         List<HeroBannerResponse> data = homeSearchService.getHeroBanners();
         if (data == null) {
@@ -36,7 +36,7 @@ public class HomeSearchController {
         return ResponseEntity.ok(ApiResponse.ok("Berhasil mengambil hero banner", data));
     }
 
-    @GetMapping("/api/v1/home/event-card")
+    @GetMapping("/api/home/event-card")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getHomeEventCards(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size) {
@@ -45,7 +45,7 @@ public class HomeSearchController {
         return ResponseEntity.ok(ApiResponse.ok("Berhasil mengambil event card", toPageMap(result)));
     }
 
-    @GetMapping("/api/v1/home/locations")
+    @GetMapping("/api/home/locations")
     public ResponseEntity<ApiResponse<List<String>>> getHomeLocations() {
         List<String> data = homeSearchService.getLocations();
         if (data == null) {
@@ -56,7 +56,7 @@ public class HomeSearchController {
 
     // ===== MODUL SEARCH =====
 
-    @GetMapping("/api/v1/search/results")
+    @GetMapping("/api/search/results")
     public ResponseEntity<ApiResponse<Map<String, Object>>> searchResults(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
@@ -71,7 +71,7 @@ public class HomeSearchController {
         return ResponseEntity.ok(ApiResponse.ok("Berhasil mencari event", toPageMap(result)));
     }
 
-    @GetMapping("/api/v1/search/locations")
+    @GetMapping("/api/search/locations")
     public ResponseEntity<ApiResponse<List<String>>> getSearchLocations() {
         List<String> data = homeSearchService.getLocations();
         if (data == null) {
@@ -80,7 +80,7 @@ public class HomeSearchController {
         return ResponseEntity.ok(ApiResponse.ok("Berhasil mengambil daftar lokasi", data));
     }
 
-    @GetMapping("/api/v1/search/categories")
+    @GetMapping("/api/search/categories")
     public ResponseEntity<ApiResponse<List<String>>> getSearchCategories() {
         List<String> data = homeSearchService.getCategories();
         if (data == null) {

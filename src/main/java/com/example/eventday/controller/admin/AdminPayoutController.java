@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/admin/payouts")
+@RequestMapping({"/admin/payouts", "/api/admin/payouts"})
 @RequiredArgsConstructor
 public class AdminPayoutController {
 
