@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping({"/api/v1/organizer", "/organizer"})
+@RequestMapping({"/api/organizer", "/api/v1/organizer", "/organizer"})
 @RequiredArgsConstructor
 public class OrganizerController {
 
@@ -182,7 +182,7 @@ public class OrganizerController {
     }
 
     @GetMapping("/events/{id}/payout-balance")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getPayoutBalance(@PathVariable("id") Long eventId) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPayoutBalance(@PathVariable("id") UUID eventId) {
         return ResponseEntity.ok(ApiResponse.ok("Saldo payout event berhasil diambil", organizerService.getPayoutBalance(eventId)));
     }
 

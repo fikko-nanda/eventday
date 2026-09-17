@@ -502,7 +502,7 @@ public class OrganizerService {
         return List.of(bank);
     }
 
-    public Map<String, Object> getPayoutBalance(Long eventId) {
+    public Map<String, Object> getPayoutBalance(UUID eventId) {
         // Try compute real if organizer context exists
         UUID uid = currentUserId();
         if (uid != null) {
