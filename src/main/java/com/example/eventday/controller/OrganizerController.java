@@ -12,11 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-<<<<<<< HEAD
 @RequestMapping("/api/organizer")
-=======
-@RequestMapping({"/api/v1/organizer", "/organizer"})
->>>>>>> c9e879c7a0d94cd5bdf6af987ce0a26b39da1ba5
 @RequiredArgsConstructor
 public class OrganizerController {
 
