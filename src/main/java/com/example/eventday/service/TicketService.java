@@ -4,12 +4,15 @@ import com.example.eventday.dto.TicketDetailResponse;
 import com.example.eventday.entity.Order;
 import com.example.eventday.entity.TicketItem;
 import com.example.eventday.entity.TicketTier;
+import com.example.eventday.model.Attendee;
+import com.example.eventday.repository.AttendeeRepository;
 import com.example.eventday.repository.TicketItemRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,6 +22,44 @@ import java.util.UUID;
 public class TicketService {
 
     private final TicketItemRepository ticketItemRepository;
+    private final AttendeeRepository attendeeRepository;
+
+    @Transactional
+    public List<TicketItem> generateTicketsForOrder(Order order) {
+        // Konversi UUID orderId ke String agar sesuai dengan AttendeeRepository
+        String orderIdStr = order.getOrderId() != null ? order.getOrderId().toString() : "";
+        List<Attendee> attendees = attendeeRepository.findByOrderId(orderIdStr);
+        List<TicketItem> generatedTickets = new ArrayList<>();
+
+        if (attendees != null && !attendees.isEmpty()) {
+            for (Attendee attendee : attendees) {
+                TicketItem ticket = generateTicket(
+                        order,
+                        order.getTicketTier(),
+                        attendee.getFullName(),
+                        attendee.getEmail(),
+                        attendee.getIdentityNumber()
+                );
+                generatedTickets.add(ticket);
+            }
+        } else {
+            // Fallback jika data peserta khusus di tabel Attendee belum diisi
+            String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
+                    ? order.getCustomer().getEmail() : "";
+
+            for (int i = 0; i < order.getQuantity(); i++) {
+                TicketItem ticket = generateTicket(
+                        order,
+                        order.getTicketTier(),
+                        "Pemegang Tiket " + (i + 1),
+                        email,
+                        null
+                );
+                generatedTickets.add(ticket);
+            }
+        }
+        return generatedTickets;
+    }
 
     @Transactional
     public TicketItem generateTicket(Order order, TicketTier tier, String attendeeName, String attendeeEmail, String attendeeNik) {
@@ -38,7 +79,6 @@ public class TicketService {
         return ticketItemRepository.findByOrderCustomerEmailOrderByCreatedAtDesc(email);
     }
 
-    // Endpoint query data detail E-Ticket berdasarkan UUID kode tiket (/tickets/issued-detail)
     @Transactional(readOnly = true)
     public TicketDetailResponse getIssuedDetail(String ticketCode) {
         UUID ticketItemId;
@@ -63,7 +103,7 @@ public class TicketService {
             categoryName = tier.getTierName();
             if (tier.getEvent() != null) {
                 eventTitle = tier.getEvent().getTitle();
-                eventDate = tier.getEvent().getStartDate(); // Disesuaikan dengan Event.java (getStartDate)
+                eventDate = tier.getEvent().getStartDate();
                 venueName = tier.getEvent().getVenueName();
             }
         }
@@ -84,7 +124,6 @@ public class TicketService {
                 .build();
     }
 
-    // Dipakai saat panitia me-scan QR Code di venue (ticketCode berupa UUID ticketItemId)
     @Transactional
     public String validateAndUseTicket(String ticketCode) {
         UUID ticketItemId;
