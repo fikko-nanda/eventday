@@ -1,17 +1,17 @@
 ### 1. Hero Banner
-GET http://localhost:8082/api/v1/home/hero-banner
+GET http://localhost:8082/api/home/hero-banner
 
 ### 2. Event Card
-GET http://localhost:8082/api/v1/home/event-card?page=0&size=12
+GET http://localhost:8082/api/home/event-card?page=0&size=12
 
 ### 3. Home Locations
-GET http://localhost:8082/api/v1/home/locations
+GET http://localhost:8082/api/home/locations
 
 ### 4. Search Results
-GET http://localhost:8082/api/v1/search/results?keyword=neon&page=0&size=12&sort=latest
+GET http://localhost:8082/api/search/results?keyword=neon&page=0&size=12&sort=latest
 
 ### 5. Search Locations
-GET http://localhost:8082/api/v1/search/locations
+GET http://localhost:8082/api/search/locations
 
 ### 6. Search Categories
-GET http://localhost:8082/api/v1/search/categories
+GET http://localhost:8082/api/search/categories

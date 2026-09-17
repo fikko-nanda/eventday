@@ -104,14 +104,14 @@ class AuthFlowIntegrationTest {
     @Test
     void register_viaMockMvc_validationUsernameRequired() throws Exception {
         String json = "{\"name\":\"John\",\"email\":\"john@mail.com\",\"password\":\"secret123\"}";
-        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(json))
+        mockMvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void register_viaMockMvc_invalidUsernamePattern() throws Exception {
         String json = String.format("{\"name\":\"John\",\"email\":\"%s\",\"username\":\"bad-name!\",\"password\":\"secret123\"}", uniqueEmail());
-        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(json))
+        mockMvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isBadRequest());
     }
 
@@ -200,7 +200,7 @@ class AuthFlowIntegrationTest {
         User u = userRepository.findByEmail(email).orElseThrow();
         authService.verifyOtp(email, otpRepository.findByUserUserId(u.getUserId()).orElseThrow().getOtpCode());
         String json = String.format("{\"identifier\":\"%s\",\"password\":\"secret123\"}", username);
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(json))
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data.token").doesNotExist())
@@ -226,7 +226,7 @@ class AuthFlowIntegrationTest {
         String email = uniqueEmail();
         registerOk(email, uniqueUsername(), uniqueNik());
         String json = String.format("{\"email\":\"%s\"}", email);
-        mockMvc.perform(post("/api/v1/auth/resend-otp").contentType(MediaType.APPLICATION_JSON).content(json))
+        mockMvc.perform(post("/api/auth/resend-otp").contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.msg").value("OTP baru berhasil dikirim ke email Anda!"))
                 .andExpect(jsonPath("$.status").value(200));
@@ -239,7 +239,7 @@ class AuthFlowIntegrationTest {
         User u = userRepository.findByEmail(email).orElseThrow();
         String code = otpRepository.findByUserUserId(u.getUserId()).orElseThrow().getOtpCode();
         String json = String.format("{\"email\":\"%s\",\"otpCode\":\"%s\"}", email, code);
-        mockMvc.perform(post("/api/v1/auth/verify-otp").contentType(MediaType.APPLICATION_JSON).content(json))
+        mockMvc.perform(post("/api/auth/verify-otp").contentType(MediaType.APPLICATION_JSON).content(json))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.msg").value("OTP terverifikasi! Akun aktif, silakan login."))
                 .andExpect(jsonPath("$.status").value(200));
@@ -294,7 +294,7 @@ class AuthFlowIntegrationTest {
         authService.verifyOtp(email, otpRepository.findByUserUserId(u.getUserId()).orElseThrow().getOtpCode());
 
         String json1 = String.format("{\"email\":\"%s\"}", email);
-        mockMvc.perform(post("/api/v1/auth/reset-password").contentType(MediaType.APPLICATION_JSON).content(json1))
+        mockMvc.perform(post("/api/auth/reset-password").contentType(MediaType.APPLICATION_JSON).content(json1))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.msg").value("Kode reset password berhasil dikirim ke email Anda!"))
                 .andExpect(jsonPath("$.status").value(200));
@@ -302,7 +302,7 @@ class AuthFlowIntegrationTest {
         String code = authRepository.findByUserUserId(u.getUserId()).orElseThrow().getResetToken();
 
         String json2 = String.format("{\"email\":\"%s\",\"code\":\"%s\",\"newPassword\":\"mockNew123\"}", email, code);
-        mockMvc.perform(post("/api/v1/auth/reset-password").contentType(MediaType.APPLICATION_JSON).content(json2))
+        mockMvc.perform(post("/api/auth/reset-password").contentType(MediaType.APPLICATION_JSON).content(json2))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.msg").value("Password berhasil direset! Silakan login dengan password baru."))
                 .andExpect(jsonPath("$.status").value(200));
@@ -317,7 +317,7 @@ class AuthFlowIntegrationTest {
 
     @Test
     void jwt_filter_protects_endpoints() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"identifier\":\"nouser\",\"password\":\"nopass\"}"))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/events"))

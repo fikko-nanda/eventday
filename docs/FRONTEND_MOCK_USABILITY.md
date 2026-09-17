@@ -5,11 +5,11 @@
 ## 1. Legal — FIXED (sekarang publik)
 
 **Sebelum:** `GET /terms-conditions` butuh login (BUG path mismatch).
-**Sesudah:** Dual alias → `GET /terms-conditions` **dan** `GET /api/v1/terms-conditions` → **200 tanpa token**.
+**Sesudah:** Dual alias → `GET /terms-conditions` **dan** `GET /api/terms-conditions` → **200 tanpa token**.
 
 ```js
-fetch(`${BASE}/terms-conditions`) // BASE = http://localhost:8082  atau /api/v1
-fetch(`${BASE}/api/v1/terms-conditions`) // kedua-duanya work
+fetch(`${BASE}/terms-conditions`) // BASE = http://localhost:8082  atau /api
+fetch(`${BASE}/api/terms-conditions`) // kedua-duanya work
 // Response: {msg, status, data: {title, slug, content: "<h1>...", sections: [...], updated_at}}
 ```
 
@@ -76,7 +76,7 @@ Semua `/organizer/*` sekarang **usable**:
 
 ```js
 // 1. Login sebagai CUSTOMER dulu (organizer adalah role extension dari user)
-await fetch(`${BASE}/api/v1/auth/login`, {method:'POST', credentials:'include', body: JSON.stringify({identifier:"eo@mail.com", password:"123456"})})
+await fetch(`${BASE}/api/auth/login`, {method:'POST', credentials:'include', body: JSON.stringify({identifier:"eo@mail.com", password:"123456"})})
 
 // 2. Register organizer (sekali)
 await fetch(`${BASE}/organizer/register`, {method:'POST', credentials:'include', body: JSON.stringify({name:"PT Event Saya"})})
@@ -103,7 +103,7 @@ File disimpan di `uploads/` dan diserve via `WebConfig` (`/uploads/**` → `file
 
 ```js
 const fd = new FormData(); fd.append('file', avatarFile);
-const {data: url} = await fetch(`${BASE}/api/v1/user/avatar`, {method:'POST', credentials:'include', body: fd}).then(r=>r.json())
+const {data: url} = await fetch(`${BASE}/api/user/avatar`, {method:'POST', credentials:'include', body: fd}).then(r=>r.json())
 // url = "/uploads/avatars/<uuid>_avatar.png"
 <img src={`http://localhost:8082${url}`} />
 ```
@@ -115,7 +115,7 @@ Validasi: `image/*`, ≤5MB.
 ## 5. Checklist Frontend Integration
 
 - [ ] Semua `fetch` pakai `credentials: 'include'` (wajib untuk cookie HttpOnly Partitioned)
-- [ ] BASE = `http://localhost:8082/api/v1` (lokal) atau `https://<ngrok>.ngrok-free.app/api/v1` (lintas laptop) — jangan tanpa `/api/v1`
+- [ ] BASE = `http://localhost:8082/api` (lokal) atau `https://<ngrok>.ngrok-free.app/api` (lintas laptop) — jangan tanpa `/api`
 - [ ] Event `facilities` masih `STRING` → `facilities.split(', ')` di frontend
 - [ ] Checkout `initiate` → `attendees` → `process` → `charge` (Midtrans redirectUrl) → polling `orders/status`
 - [ ] Refund banks pakai API (8 bank) jangan hardcode

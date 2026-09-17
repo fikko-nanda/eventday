@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/admin/eo-applications")
+@RequestMapping({"/admin/eo-applications", "/api/admin/eo-applications"})
 @RequiredArgsConstructor
 public class AdminEoController {
 
