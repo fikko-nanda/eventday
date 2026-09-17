@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -21,6 +22,7 @@ public class EmailService {
     private String fromName;
 
     // 1. Kirim OTP Verifikasi Pendaftaran
+    @Async
     public void sendOtpEmail(String to, String otpCode) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
@@ -36,6 +38,7 @@ public class EmailService {
     }
 
     // 2. Kirim Kode Reset Password (Lupa Password)
+    @Async
     public void sendResetPasswordEmail(String to, String code) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
@@ -51,6 +54,7 @@ public class EmailService {
     }
 
     // 3. Notifikasi Sukses Ganti Password Mandiri
+    @Async
     public void sendPasswordChangedNotification(String to) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
@@ -66,6 +70,7 @@ public class EmailService {
     }
 
     // 4. Notifikasi Konfirmasi Pembayaran & E-Ticket
+    @Async
     public void sendOrderConfirmationEmail(String to, String orderNumber, String eventTitle, int qty) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();

@@ -10,6 +10,7 @@ import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.TicketTierRepository;
 import com.example.eventday.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @SuppressWarnings("null")
@@ -26,7 +28,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
     private final TicketTierRepository ticketTierRepository;
-    private final AttendeeRepository attendeeRepository; // Injeksi Repository Attendee
+    private final AttendeeRepository attendeeRepository;
 
     @Value("${app.order.admin-fee:5000}")
     private BigDecimal adminFee;
@@ -49,6 +51,10 @@ public class OrderService {
             throw new IllegalStateException("Kuota tiket tidak mencukupi");
         }
 
+        // [PERBAIKAN 1]: Potong kuota tiket di database saat order baru dibuat (Cegah Overselling)
+        tier.setAvailableQuota(tier.getAvailableQuota() - request.getQuantity());
+        ticketTierRepository.save(tier);
+
         BigDecimal subtotal = tier.getPrice().multiply(BigDecimal.valueOf(request.getQuantity()));
         BigDecimal totalAmount = subtotal.add(adminFee);
 
@@ -66,7 +72,20 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    // 1. Simpan Data Peserta ke DB (Menghilangkan STUB)
+    // [PERBAIKAN 2]: Method pengembalian kuota tiket saat order EXPIRED atau CANCELLED
+    @Transactional
+    public void handleExpiredOrCancelledOrder(Order order) {
+        if ("EXPIRED".equalsIgnoreCase(order.getStatus()) || "CANCELLED".equalsIgnoreCase(order.getStatus())) {
+            log.info("Mengembalikan kuota tiket sebanyak {} untuk Order ID: {}", order.getQuantity(), order.getOrderId());
+            TicketTier tier = order.getTicketTier();
+            if (tier != null) {
+                tier.setAvailableQuota(tier.getAvailableQuota() + order.getQuantity());
+                ticketTierRepository.save(tier);
+            }
+        }
+    }
+
+    // 1. Simpan Data Peserta ke DB
     @Transactional
     public List<Attendee> saveAttendees(AttendeeRequest request) {
         if (request.getAttendees() == null || request.getAttendees().isEmpty()) {
@@ -106,7 +125,6 @@ public class OrderService {
     }
 
     // 3. Process Checkout (Kunci status menjadi WAITING_PAYMENT)
-    // Guard: tolak order yang sudah final/kedaluwarsa agar process tak bisa downgrade status PAID.
     @Transactional
     public Order processCheckout(UUID orderId) {
         Order order = orderRepository.findById(orderId)
