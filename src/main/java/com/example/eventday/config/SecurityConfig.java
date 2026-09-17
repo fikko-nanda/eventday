@@ -5,8 +5,10 @@ import com.example.eventday.security.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -33,8 +35,9 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         ObjectMapper om = new ObjectMapper();
+        
         http
-            .cors(cors -> {})
+            .cors(Customizer.withDefaults())
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(ex -> ex
@@ -52,27 +55,30 @@ public class SecurityConfig {
                 })
             )
             .authorizeHttpRequests(auth -> auth
-                // Root & error ngrok
-                .requestMatchers("/", "/error").permitAll()
+                // Public root & static resources
+                .requestMatchers("/", "/error", "/favicon.ico").permitAll()
 
-                // Modul Auth (Login, Register, OTP, Google)
-                .requestMatchers("/api/v1/auth/**", "/api/auth/**").permitAll()
+                // Modul Auth (Mendukung /api/auth/** dan /api/v1/auth/**)
+                .requestMatchers("/api/auth/**", "/api/v1/auth/**").permitAll()
 
-                // Modul Publik
-                .requestMatchers("/api/v1/home/**", "/api/home/**").permitAll()
-                .requestMatchers("/api/v1/search/**", "/api/search/**").permitAll()
-                .requestMatchers("/api/v1/events/**", "/api/events/**").permitAll()
+                // Modul Home, Search & Legal (Publik)
+                .requestMatchers("/api/home/**").permitAll()
+                .requestMatchers("/api/search/**").permitAll()
+                .requestMatchers("/terms-conditions", "/privacy-policy", "/api/terms-conditions", "/api/privacy-policy").permitAll()
 
-                // Modul Legal & Informasi Statis (Publik)
-                .requestMatchers("/terms-conditions", "/privacy-policy", "/api/v1/terms-conditions", "/api/v1/privacy-policy").permitAll()
+                // Modul Events (Hanya GET yang publik, POST/PUT/DELETE butuh login)
+                .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()
 
-                // Webhook Midtrans — publik untuk route /api dan /api/v1
+                // Webhook Midtrans (Publik)
                 .requestMatchers("/api/payments/midtrans-notification", "/api/v1/payments/midtrans-notification").permitAll()
 
-                // Modul Admin
-                .requestMatchers("/admin/**").hasRole("ADMIN")
+                // Endpoint Scan Tiket (Dibatasi untuk Admin/Organizer saja)
+                .requestMatchers("/api/tickets/scan", "/api/v1/tickets/scan").hasAnyRole("ADMIN", "ORGANIZER")
 
-                // Endpoint pembayaran & selebihnya wajib login (termasuk /api/payments/charge & /api/v1/payments/charge)
+                // Modul Admin
+                .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
+
+                // Sisanya wajib Authenticated
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
