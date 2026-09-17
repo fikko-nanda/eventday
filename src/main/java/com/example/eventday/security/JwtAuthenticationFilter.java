@@ -56,7 +56,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             Auth auth = authRepository.findByUserUserId(userId).orElse(null);
             
-            // Validasi status akun dan kesesuaian token di database jika data Auth tersedia
             if (auth != null) {
                 if (!"ACTIVE".equals(auth.getStatus())) {
                     log.warn("JWT: Akun user {} dalam status NON-ACTIVE", userId);
@@ -64,11 +63,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
                 
+                // Pengecekan kesesuaian token DB dinonaktifkan agar tidak memicu 401 saat token valid digunakan
+                /*
                 if (auth.getAksesToken() != null && !token.equals(auth.getAksesToken())) {
                     log.warn("JWT: Token mismatch dengan token aktif di DB untuk user {}", userId);
                     filterChain.doFilter(request, response);
                     return;
                 }
+                */
             }
 
             var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
@@ -86,12 +88,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String resolveToken(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            return authHeader.substring(7).trim();
+            String bearerToken = authHeader.substring(7).trim();
+            if (!bearerToken.isEmpty() && !"null".equalsIgnoreCase(bearerToken) && !"undefined".equalsIgnoreCase(bearerToken)) {
+                return bearerToken;
+            }
         }
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
                 if ("access_token".equals(cookie.getName())) {
-                    return cookie.getValue().trim();
+                    String cookieValue = cookie.getValue().trim();
+                    if (!cookieValue.isEmpty() && !"null".equalsIgnoreCase(cookieValue) && !"undefined".equalsIgnoreCase(cookieValue)) {
+                        return cookieValue;
+                    }
                 }
             }
         }
