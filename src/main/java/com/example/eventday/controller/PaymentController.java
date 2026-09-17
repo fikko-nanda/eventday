@@ -24,32 +24,40 @@ public class PaymentController {
 
     @PostMapping("/charge")
     public ResponseEntity<ApiResponse<?>> processPayment(@RequestBody Map<String, Object> request) {
-        if (request == null) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.success("Request body tidak boleh kosong", null));
+        log.info("Request /payments/charge masuk dengan body: {}", request);
+
+        try {
+            if (request == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.success("Request body tidak boleh kosong", null));
+            }
+
+            String orderId = request.get("orderId") != null ? request.get("orderId").toString()
+                    : (request.get("order_id") != null ? request.get("order_id").toString() : null);
+
+            Object amountObj = request.get("grossAmount") != null ? request.get("grossAmount")
+                    : (request.get("gross_amount") != null ? request.get("gross_amount") : request.get("amount"));
+
+            if (orderId == null || amountObj == null) {
+                log.warn("Validation fail: orderId={}, amountObj={}", orderId, amountObj);
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.success("Request body wajib menyertakan 'orderId' dan 'grossAmount'", null));
+            }
+
+            BigDecimal grossAmount = new BigDecimal(amountObj.toString());
+            String customerName = request.get("customerName") != null ? request.get("customerName").toString()
+                    : (request.get("customer_name") != null ? request.get("customer_name").toString() : "");
+            String customerEmail = request.get("customerEmail") != null ? request.get("customerEmail").toString() : "";
+
+            Map<String, String> midtransResponse = midtransService.createSnapTransaction(orderId, grossAmount, customerName, customerEmail);
+
+            return ResponseEntity.ok(ApiResponse.success("Snap Token berhasil dibuat", midtransResponse));
+
+        } catch (Exception e) {
+            log.error("Error Midtrans Snap Charge: ", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.success("Gagal memproses Snap Midtrans: " + e.getMessage(), null));
         }
-
-        // Fleksibel membaca orderId (orderId atau order_id)
-        String orderId = request.get("orderId") != null ? request.get("orderId").toString()
-                : (request.get("order_id") != null ? request.get("order_id").toString() : null);
-
-        // Fleksibel membaca grossAmount (grossAmount, gross_amount, atau amount)
-        Object amountObj = request.get("grossAmount") != null ? request.get("grossAmount")
-                : (request.get("gross_amount") != null ? request.get("gross_amount") : request.get("amount"));
-
-        if (orderId == null || amountObj == null) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.success("Request body wajib menyertakan 'orderId'/'order_id' dan 'grossAmount'/'amount'", null));
-        }
-
-        BigDecimal grossAmount = new BigDecimal(amountObj.toString());
-        String customerName = request.get("customerName") != null ? request.get("customerName").toString()
-                : (request.get("customer_name") != null ? request.get("customer_name").toString() : "");
-        String customerEmail = request.get("customerEmail") != null ? request.get("customerEmail").toString() : "";
-
-        Map<String, String> midtransResponse = midtransService.createSnapTransaction(orderId, grossAmount, customerName, customerEmail);
-
-        return ResponseEntity.ok(ApiResponse.success("Snap Token berhasil dibuat", midtransResponse));
     }
 
     @PostMapping("/midtrans-notification")
