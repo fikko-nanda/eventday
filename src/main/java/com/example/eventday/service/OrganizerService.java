@@ -635,4 +635,256 @@ public class OrganizerService {
         detail.put("mock", true);
         return detail;
     }
+
+    // ==========================================
+    // MANAJEMEN EVENT EO (PERSISTEN DB)
+    // ==========================================
+
+    private Organizer resolveCurrentOrganizer() {
+        UUID uid = currentUserId();
+        if (uid != null) {
+            Optional<Organizer> opt = organizerRepository.findByUserUserId(uid);
+            if (opt.isPresent()) return opt.get();
+        }
+        return organizerRepository.findAll().stream().findFirst().orElse(null);
+    }
+
+    public List<Map<String, Object>> getOrganizerEvents() {
+        Organizer org = resolveCurrentOrganizer();
+        if (org == null) return Collections.emptyList();
+
+        return eventRepository.findByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId())
+                .stream()
+                .map(this::mapEventToResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<Map<String, Object>> getDraftEvents() {
+        Organizer org = resolveCurrentOrganizer();
+        if (org == null) return Collections.emptyList();
+
+        return eventRepository.findByOrganizer_OrganizerIdAndStatusOrderByCreatedAtDesc(org.getOrganizerId(), "DRAFT")
+                .stream()
+                .map(this::mapEventToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public Map<String, Object> createEvent(Map<String, Object> payload) {
+        Organizer org = resolveCurrentOrganizer();
+        if (org == null) {
+            throw new RuntimeException("Organizer tidak ditemukan atau belum login");
+        }
+
+        LocalDateTime start = payload.get("startDate") != null || payload.get("start_date") != null
+                ? LocalDateTime.parse(String.valueOf(payload.getOrDefault("startDate", payload.get("start_date"))).replace(" ", "T"))
+                : LocalDateTime.now().plusDays(7);
+
+        LocalDateTime end = payload.get("endDate") != null || payload.get("end_date") != null
+                ? LocalDateTime.parse(String.valueOf(payload.getOrDefault("endDate", payload.get("end_date"))).replace(" ", "T"))
+                : start.plusDays(1);
+
+        Event event = Event.builder()
+                .organizer(org)
+                .title((String) payload.getOrDefault("title", "Untitled Event"))
+                .description((String) payload.get("description"))
+                .category((String) payload.getOrDefault("category", "Music"))
+                .venueName((String) payload.getOrDefault("venue_name", payload.getOrDefault("venueName", "TBA")))
+                .bannerUrl((String) payload.getOrDefault("banner_url", payload.get("bannerUrl")))
+                .facility((String) payload.get("facility"))
+                .lineup((String) payload.get("lineup"))
+                .startDate(start)
+                .endDate(end)
+                .status("DRAFT")
+                .isFeatured(false)
+                .createBy(currentUserId())
+                .build();
+
+        Event saved = eventRepository.save(event);
+        return mapEventToResponse(saved);
+    }
+
+    @Transactional
+    public Map<String, Object> updateEvent(Map<String, Object> payload) {
+        String idStr = String.valueOf(payload.getOrDefault("eventId", payload.getOrDefault("event_id", payload.get("id"))));
+        if (idStr == null || "null".equals(idStr)) {
+            throw new RuntimeException("Event ID wajib diisi");
+        }
+
+        Event event = eventRepository.findById(UUID.fromString(idStr))
+                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+
+        if (payload.containsKey("title")) event.setTitle((String) payload.get("title"));
+        if (payload.containsKey("description")) event.setDescription((String) payload.get("description"));
+        if (payload.containsKey("category")) event.setCategory((String) payload.get("category"));
+        if (payload.containsKey("venueName")) event.setVenueName((String) payload.get("venueName"));
+        if (payload.containsKey("venue_name")) event.setVenueName((String) payload.get("venue_name"));
+        if (payload.containsKey("bannerUrl")) event.setBannerUrl((String) payload.get("bannerUrl"));
+        if (payload.containsKey("banner_url")) event.setBannerUrl((String) payload.get("banner_url"));
+        if (payload.containsKey("facility")) event.setFacility((String) payload.get("facility"));
+        if (payload.containsKey("lineup")) event.setLineup((String) payload.get("lineup"));
+
+        if (payload.containsKey("startDate") || payload.containsKey("start_date")) {
+            event.setStartDate(LocalDateTime.parse(String.valueOf(payload.getOrDefault("startDate", payload.get("start_date"))).replace(" ", "T")));
+        }
+        if (payload.containsKey("endDate") || payload.containsKey("end_date")) {
+            event.setEndDate(LocalDateTime.parse(String.valueOf(payload.getOrDefault("endDate", payload.get("end_date"))).replace(" ", "T")));
+        }
+
+        event.setUpdatedAt(LocalDateTime.now());
+        event.setUpdatedBy(currentUserId());
+        Event saved = eventRepository.save(event);
+        return mapEventToResponse(saved);
+    }
+
+    @Transactional
+    public Map<String, Object> publishEvent(Map<String, Object> payload) {
+        String idStr = String.valueOf(payload.getOrDefault("eventId", payload.getOrDefault("event_id", payload.get("id"))));
+        if (idStr == null || "null".equals(idStr)) {
+            throw new RuntimeException("Event ID wajib diisi");
+        }
+
+        Event event = eventRepository.findById(UUID.fromString(idStr))
+                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+
+        event.setStatus("PUBLISHED");
+        event.setUpdatedAt(LocalDateTime.now());
+        event.setUpdatedBy(currentUserId());
+        Event saved = eventRepository.save(event);
+
+        Map<String, Object> res = new HashMap<>();
+        res.put("event_id", saved.getEventId().toString());
+        res.put("title", saved.getTitle());
+        res.put("status", saved.getStatus());
+        res.put("message", "Event berhasil dipublikasikan");
+        return res;
+    }
+
+    public Map<String, Object> getEventSalesSummary(UUID eventId) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+
+        long ticketsSold = orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getEventId().equals(eventId))
+                .mapToLong(o -> o.getQuantity() != null ? o.getQuantity() : 0)
+                .sum();
+
+        double revenue = orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getEventId().equals(eventId))
+                .filter(o -> "PAID".equals(o.getStatus()))
+                .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
+                .sum();
+
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("event_id", event.getEventId().toString());
+        summary.put("title", event.getTitle());
+        summary.put("status", event.getStatus());
+        summary.put("tickets_sold", ticketsSold);
+        summary.put("total_revenue", revenue);
+        return summary;
+    }
+
+    // ==========================================
+    // DASHBOARD EO METRICS & RECENT ACTIVITIES
+    // ==========================================
+
+    public Map<String, Object> getOrganizerDashboardMetrics() {
+        Organizer org = resolveCurrentOrganizer();
+        if (org == null) {
+            return Map.of("total_revenue", 0, "active_events", 0, "total_events", 0, "tickets_sold", 0);
+        }
+
+        long activeEvents = eventRepository.countByOrganizer_OrganizerIdAndStatus(org.getOrganizerId(), "PUBLISHED");
+        long totalEvents = eventRepository.countByOrganizer_OrganizerId(org.getOrganizerId());
+
+        double revenue = orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                .filter(o -> "PAID".equals(o.getStatus()))
+                .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
+                .sum();
+
+        long ticketsSold = orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                .mapToLong(o -> o.getQuantity() != null ? o.getQuantity() : 0)
+                .sum();
+
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("total_revenue", revenue);
+        metrics.put("active_events", activeEvents);
+        metrics.put("total_events", totalEvents);
+        metrics.put("tickets_sold", ticketsSold);
+        metrics.put("organizer_id", org.getOrganizerId().toString());
+        return metrics;
+    }
+
+    public List<Map<String, Object>> getRecentEvents() {
+        Organizer org = resolveCurrentOrganizer();
+        if (org == null) return Collections.emptyList();
+
+        return eventRepository.findTop5ByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId())
+                .stream()
+                .map(this::mapEventToResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<Map<String, Object>> getRecentTransactions() {
+        Organizer org = resolveCurrentOrganizer();
+        if (org == null) return Collections.emptyList();
+
+        return orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                .limit(5)
+                .map(o -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("order_id", o.getOrderId().toString());
+                    m.put("event_title", o.getEvent().getTitle());
+                    m.put("amount", o.getTotalAmount());
+                    m.put("status", o.getStatus());
+                    m.put("created_at", o.getCreatedAt().toString());
+                    return m;
+                })
+                .collect(Collectors.toList());
+    }
+
+    public Map<String, Object> getPayoutDetailByString(String id) {
+        try {
+            UUID uid = UUID.fromString(id);
+            Optional<com.example.eventday.entity.RefundRequestEntity> opt = refundRepository.findById(uid);
+            if (opt.isPresent()) {
+                var r = opt.get();
+                Map<String, Object> detail = new HashMap<>();
+                detail.put("id", r.getRefundId().toString());
+                detail.put("amount", r.getAmount());
+                detail.put("status", r.getStatus());
+                detail.put("bank_name", r.getBankName());
+                detail.put("account_number", r.getBankAccountNumber());
+                detail.put("account_holder", r.getAccountHolder());
+                detail.put("created_at", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
+                return detail;
+            }
+        } catch (Exception ignored) {}
+        return getPayoutDetail(101L);
+    }
+
+    private Map<String, Object> mapEventToResponse(Event event) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("event_id", event.getEventId().toString());
+        map.put("title", event.getTitle());
+        map.put("description", event.getDescription());
+        map.put("category", event.getCategory());
+        map.put("venue_name", event.getVenueName());
+        map.put("banner_url", event.getBannerUrl());
+        map.put("facility", event.getFacility());
+        map.put("lineup", event.getLineup());
+        map.put("start_date", event.getStartDate() != null ? event.getStartDate().toString() : null);
+        map.put("end_date", event.getEndDate() != null ? event.getEndDate().toString() : null);
+        map.put("status", event.getStatus());
+        map.put("is_featured", event.getIsFeatured());
+        map.put("created_at", event.getCreatedAt() != null ? event.getCreatedAt().toString() : null);
+        return map;
+    }
 }

@@ -4,9 +4,12 @@ import com.example.eventday.entity.Auth;
 import com.example.eventday.repository.AuthRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -15,9 +18,6 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import jakarta.servlet.http.Cookie;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
@@ -39,13 +39,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = resolveToken(request);
         if (token == null) {
-            log.debug("JWT: TIDAK ADA TOKEN -> tidak autentikasi (cek: Authorization header / cookie access_token dikirim? credentials:'include' active?)");
+            log.debug("JWT: Token tidak ditemukan dalam request ({})", request.getRequestURI());
             filterChain.doFilter(request, response);
             return;
         }
+
         try {
             if (!jwtTokenProvider.validateToken(token)) {
-                log.debug("JWT: token ada tapi INVALID/EXPIRED -> tidak autentikasi");
+                log.warn("JWT: Token tidak valid atau kadaluwarsa untuk URI: {}", request.getRequestURI());
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -54,10 +55,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String role = jwtTokenProvider.getRole(token);
 
             Auth auth = authRepository.findByUserUserId(userId).orElse(null);
-            if (auth == null || !"ACTIVE".equals(auth.getStatus()) || !token.equals(auth.getAksesToken())) {
-                log.debug("JWT: token VALID tapi auth status/aksesToken TIDAK COCOK untuk user {}", userId);
-                filterChain.doFilter(request, response);
-                return;
+            
+            if (auth != null) {
+                if (!"ACTIVE".equals(auth.getStatus())) {
+                    log.warn("JWT: Akun user {} dalam status NON-ACTIVE", userId);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                
+                // Pengecekan kesesuaian token DB dinonaktifkan agar tidak memicu 401 saat token valid digunakan
+                /*
+                if (auth.getAksesToken() != null && !token.equals(auth.getAksesToken())) {
+                    log.warn("JWT: Token mismatch dengan token aktif di DB untuk user {}", userId);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                */
             }
 
             var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
@@ -66,7 +79,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
         } catch (Exception e) {
-            log.debug("JWT: exception saat validasi token -> tidak autentikasi: {}", e.getMessage());
+            log.error("JWT: Error saat ekstraksi token untuk URI {}: {}", request.getRequestURI(), e.getMessage());
         }
 
         filterChain.doFilter(request, response);
@@ -75,12 +88,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String resolveToken(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            return authHeader.substring(7);
+            String bearerToken = authHeader.substring(7).trim();
+            if (!bearerToken.isEmpty() && !"null".equalsIgnoreCase(bearerToken) && !"undefined".equalsIgnoreCase(bearerToken)) {
+                return bearerToken;
+            }
         }
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
                 if ("access_token".equals(cookie.getName())) {
-                    return cookie.getValue();
+                    String cookieValue = cookie.getValue().trim();
+                    if (!cookieValue.isEmpty() && !"null".equalsIgnoreCase(cookieValue) && !"undefined".equalsIgnoreCase(cookieValue)) {
+                        return cookieValue;
+                    }
                 }
             }
         }

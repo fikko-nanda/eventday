@@ -6,6 +6,8 @@ import com.example.eventday.model.Attendee;
 import com.example.eventday.service.OrderService;
 import com.example.eventday.service.PaymentService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -65,9 +68,20 @@ public class CheckoutController {
     }
 
     @GetMapping("/checkout/summary")
-    public ResponseEntity<ApiResponse<CheckoutSummaryResponse>> getSummary(@RequestParam UUID orderId) {
-        CheckoutSummaryResponse summary = paymentService.getCheckoutSummary(orderId);
-        return ResponseEntity.ok(ApiResponse.success("Ringkasan checkout", summary));
+    public ResponseEntity<ApiResponse<?>> getSummary(@RequestParam(value = "orderId", required = false) UUID orderId) {
+        try {
+            if (orderId == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.success("Parameter orderId wajib diisi", null));
+            }
+
+            CheckoutSummaryResponse summary = paymentService.getCheckoutSummary(orderId);
+            return ResponseEntity.ok(ApiResponse.success("Ringkasan checkout", summary));
+        } catch (Exception e) {
+            log.error("Error saat memuat ringkasan checkout orderId {}: ", orderId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.success("Gagal memuat ringkasan checkout: " + e.getMessage(), null));
+        }
     }
 
     @GetMapping("/orders/{orderId}/total-amount")

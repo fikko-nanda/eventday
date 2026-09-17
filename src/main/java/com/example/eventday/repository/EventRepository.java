@@ -59,4 +59,15 @@ public interface EventRepository extends JpaRepository<Event, UUID> {
     long countByStatus(String status);
 
     List<Event> findTop5ByOrderByCreatedAtDesc();
+
+    // ===== MODUL ORGANIZER PORTAL =====
+    List<Event> findByOrganizer_OrganizerIdOrderByCreatedAtDesc(UUID organizerId);
+
+    List<Event> findByOrganizer_OrganizerIdAndStatusOrderByCreatedAtDesc(UUID organizerId, String status);
+
+    List<Event> findTop5ByOrganizer_OrganizerIdOrderByCreatedAtDesc(UUID organizerId);
+
+    long countByOrganizer_OrganizerId(UUID organizerId);
+
+    long countByOrganizer_OrganizerIdAndStatus(UUID organizerId, String status);
 }
