@@ -24,6 +24,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping({"/api/payments", "/api/v1/payments"})
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class PaymentController {
 
     private final MidtransService midtransService;
