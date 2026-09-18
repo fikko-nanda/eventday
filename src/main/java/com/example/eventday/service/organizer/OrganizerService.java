@@ -1,4 +1,4 @@
-package com.example.eventday.service;
+package com.example.eventday.service.organizer;
 
 import com.example.eventday.entity.Event;
 import com.example.eventday.entity.Organizer;

@@ -1,7 +1,7 @@
-package com.example.eventday.controller;
+package com.example.eventday.controller.organizer;
 
 import com.example.eventday.dto.ApiResponse;
-import com.example.eventday.service.OrganizerService;
+import com.example.eventday.service.organizer.OrganizerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
