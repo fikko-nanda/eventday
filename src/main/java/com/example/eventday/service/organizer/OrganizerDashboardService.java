@@ -1,0 +1,151 @@
+package com.example.eventday.service.organizer;
+
+import com.example.eventday.entity.Event;
+import com.example.eventday.entity.Organizer;
+import com.example.eventday.repository.EventRepository;
+import com.example.eventday.repository.OrderRepository;
+import com.example.eventday.repository.OrganizerRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class OrganizerDashboardService {
+
+    private final OrganizerHelperService helperService;
+    private final OrganizerRepository organizerRepository;
+    private final EventRepository eventRepository;
+    private final OrderRepository orderRepository;
+
+    public Map<String, Object> getOrganizerDashboard() {
+        UUID uid = helperService.currentUserId();
+        if (uid != null) {
+            Optional<Organizer> opt = organizerRepository.findByUserUserId(uid);
+            if (opt.isPresent()) {
+                Organizer org = opt.get();
+                List<Event> allEvents = eventRepository.findAll();
+                List<Event> myEvents = allEvents.stream()
+                        .filter(e -> e.getOrganizer() != null && e.getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                        .collect(Collectors.toList());
+                long activeEvents = myEvents.stream().filter(e -> "PUBLISHED".equals(e.getStatus())).count();
+
+                double revenue = orderRepository.findAll().stream()
+                        .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                                && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                        .filter(o -> "PAID".equals(o.getStatus()) || "WAITING_PAYMENT".equals(o.getStatus()))
+                        .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
+                        .sum();
+
+                long ticketsSold = orderRepository.findAll().stream()
+                        .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                                && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                        .mapToLong(o -> o.getQuantity() != null ? o.getQuantity() : 0)
+                        .sum();
+
+                Map<String, Object> metrics = new HashMap<>();
+                metrics.put("total_revenue", revenue);
+                metrics.put("active_events", activeEvents);
+                metrics.put("total_events", myEvents.size());
+                metrics.put("tickets_sold", ticketsSold);
+                metrics.put("organizer_id", org.getOrganizerId().toString());
+                metrics.put("real", true);
+                return metrics;
+            }
+        }
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("total_revenue", 42500000);
+        metrics.put("active_events", 2);
+        metrics.put("tickets_sold", 1248);
+        metrics.put("mock", true);
+        return metrics;
+    }
+
+    public Map<String, Object> getOrganizerDashboardMetrics() {
+        Organizer org = helperService.resolveCurrentOrganizer();
+        if (org == null) {
+            return Map.of("total_revenue", 0, "active_events", 0, "total_events", 0, "tickets_sold", 0);
+        }
+
+        long activeEvents = eventRepository.countByOrganizer_OrganizerIdAndStatus(org.getOrganizerId(), "PUBLISHED");
+        long totalEvents = eventRepository.countByOrganizer_OrganizerId(org.getOrganizerId());
+
+        double revenue = orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                .filter(o -> "PAID".equals(o.getStatus()))
+                .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
+                .sum();
+
+        long ticketsSold = orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                .mapToLong(o -> o.getQuantity() != null ? o.getQuantity() : 0)
+                .sum();
+
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("total_revenue", revenue);
+        metrics.put("active_events", activeEvents);
+        metrics.put("total_events", totalEvents);
+        metrics.put("tickets_sold", ticketsSold);
+        metrics.put("organizer_id", org.getOrganizerId().toString());
+        return metrics;
+    }
+
+    public List<Map<String, Object>> getRecentEvents() {
+        Organizer org = helperService.resolveCurrentOrganizer();
+        if (org == null) return Collections.emptyList();
+
+        return eventRepository.findTop5ByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId())
+                .stream()
+                .map(this::mapEventToResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<Map<String, Object>> getRecentTransactions() {
+        Organizer org = helperService.resolveCurrentOrganizer();
+        if (org == null) return Collections.emptyList();
+
+        return orderRepository.findAll().stream()
+                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                .sorted((a, b) -> {
+                    if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
+                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                })
+                .limit(5)
+                .map(o -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("order_id", o.getOrderId() != null ? o.getOrderId().toString() : null);
+                    m.put("event_title", o.getEvent() != null ? o.getEvent().getTitle() : "-");
+                    m.put("amount", o.getTotalAmount());
+                    m.put("status", o.getStatus());
+                    m.put("created_at", o.getCreatedAt() != null ? o.getCreatedAt().toString() : null);
+                    return m;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private Map<String, Object> mapEventToResponse(Event event) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("event_id", event.getEventId().toString());
+        map.put("title", event.getTitle());
+        map.put("description", event.getDescription());
+        map.put("category", event.getCategory());
+        map.put("venue_name", event.getVenueName());
+        map.put("banner_url", event.getBannerUrl());
+        map.put("facility", event.getFacility());
+        map.put("lineup", event.getLineup());
+        map.put("start_date", event.getStartDate() != null ? event.getStartDate().toString() : null);
+        map.put("end_date", event.getEndDate() != null ? event.getEndDate().toString() : null);
+        map.put("status", event.getStatus());
+        map.put("is_featured", event.getIsFeatured());
+        map.put("created_at", event.getCreatedAt() != null ? event.getCreatedAt().toString() : null);
+        return map;
+    }
+}
