@@ -11,12 +11,16 @@ import com.example.eventday.repository.RefundRepository;
 import com.example.eventday.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -350,126 +354,114 @@ public class OrganizerService {
     }
 
     // ==========================================
-    // MANAJEMEN REFUND EO — DB-backed with fallback
+    // MANAJEMEN REFUND EO — REAL PERSISTENT DB & OWNERSHIP GUARD
     // ==========================================
 
     public List<Map<String, Object>> getRefundRequests() {
-        UUID uid = currentUserId();
-        if (uid != null) {
-            Optional<Organizer> orgOpt = organizerRepository.findByUserUserId(uid);
-            if (orgOpt.isPresent()) {
-                List<com.example.eventday.entity.RefundRequestEntity> list =
-                        refundRepository.findByOrganizerId(orgOpt.get().getOrganizerId());
-                if (!list.isEmpty()) {
-                    return list.stream().map(r -> {
-                        Map<String, Object> m = new HashMap<>();
-                        m.put("refund_id", r.getRefundId().toString());
-                        m.put("order_id", r.getOrderId() != null ? r.getOrderId().toString() : null);
-                        m.put("customer_id", r.getCustomerId() != null ? r.getCustomerId().toString() : null);
-                        m.put("amount", r.getAmount());
-                        m.put("reason", r.getReason());
-                        m.put("bank_name", r.getBankName());
-                        m.put("account_number", r.getBankAccountNumber());
-                        m.put("account_holder", r.getAccountHolder());
-                        m.put("status", r.getStatus());
-                        m.put("created_at", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
-                        return m;
-                    }).collect(Collectors.toList());
-                }
-            }
-            // global fallback: show all pending refunds (for dev)
-            List<com.example.eventday.entity.RefundRequestEntity> all = refundRepository.findByStatus("PENDING");
-            if (!all.isEmpty()) {
-                return all.stream().limit(20).map(r -> {
-                    Map<String, Object> m = new HashMap<>();
-                    m.put("refund_id", r.getRefundId().toString());
-                    m.put("order_id", r.getOrderId() != null ? r.getOrderId().toString() : null);
-                    m.put("amount", r.getAmount());
-                    m.put("reason", r.getReason());
-                    m.put("status", r.getStatus());
-                    return m;
-                }).collect(Collectors.toList());
-            }
+        Organizer org = resolveCurrentOrganizer();
+        List<com.example.eventday.entity.RefundRequestEntity> list =
+                refundRepository.findByOrganizerId(org.getOrganizerId());
+
+        if (list == null || list.isEmpty()) {
+            return Collections.emptyList();
         }
-        Map<String, Object> item = new HashMap<>();
-        item.put("refund_id", "REF-001");
-        item.put("order_id", "ORD-12345");
-        item.put("customer_name", "Farid Ainur");
-        item.put("event_title", "Konser Musik Indie Fest");
-        item.put("amount", 250000);
-        item.put("reason", "Event dijadwalkan ulang");
-        item.put("status", "PENDING");
-        item.put("mock", true);
-        return List.of(item);
+
+        return list.stream().map(r -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("refund_id", r.getRefundId() != null ? r.getRefundId().toString() : null);
+            m.put("order_id", r.getOrderId() != null ? r.getOrderId().toString() : null);
+            m.put("customer_id", r.getCustomerId() != null ? r.getCustomerId().toString() : null);
+            m.put("amount", r.getAmount());
+            m.put("reason", r.getReason());
+            m.put("bank_name", r.getBankName());
+            m.put("account_number", r.getBankAccountNumber());
+            m.put("account_holder", r.getAccountHolder());
+            m.put("status", r.getStatus());
+            m.put("created_at", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
+            return m;
+        }).collect(Collectors.toList());
     }
 
     public Map<String, Object> getRefundDetail(String refundId) {
+        Organizer org = resolveCurrentOrganizer();
+        UUID id;
         try {
-            UUID id = UUID.fromString(refundId);
-            Optional<com.example.eventday.entity.RefundRequestEntity> opt = refundRepository.findById(id);
-            if (opt.isPresent()) {
-                var r = opt.get();
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("refund_id", r.getRefundId().toString());
-                detail.put("order_id", r.getOrderId() != null ? r.getOrderId().toString() : null);
-                detail.put("amount", r.getAmount());
-                detail.put("reason", r.getReason());
-                detail.put("bank_name", r.getBankName());
-                detail.put("account_number", r.getBankAccountNumber());
-                detail.put("account_holder", r.getAccountHolder());
-                detail.put("status", r.getStatus());
-                detail.put("rejection_reason", r.getRejectionReason());
-                detail.put("admin_note", r.getAdminNote());
-                detail.put("created_at", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
-                return detail;
-            }
-        } catch (Exception ignored) {}
+            id = UUID.fromString(refundId);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Format ID refund tidak valid");
+        }
+
+        com.example.eventday.entity.RefundRequestEntity r = refundRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pengajuan refund tidak ditemukan"));
+
+        // Ownership Validation: Cegah IDOR antar EO (Temuan Audit #4)
+        if (r.getOrganizerId() == null || !r.getOrganizerId().equals(org.getOrganizerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik tiket/event ini");
+        }
+
         Map<String, Object> detail = new HashMap<>();
-        detail.put("refund_id", refundId);
-        detail.put("order_id", "ORD-12345");
-        detail.put("customer_name", "Farid Ainur");
-        detail.put("account_number", "9876543210");
-        detail.put("bank_name", "BCA");
-        detail.put("amount", 250000);
-        detail.put("reason", "Event dijadwalkan ulang");
-        detail.put("status", "PENDING");
-        detail.put("submitted_at", "2026-09-14 10:00:00");
-        detail.put("mock", true);
+        detail.put("refund_id", r.getRefundId().toString());
+        detail.put("order_id", r.getOrderId() != null ? r.getOrderId().toString() : null);
+        detail.put("amount", r.getAmount());
+        detail.put("reason", r.getReason());
+        detail.put("bank_name", r.getBankName());
+        detail.put("account_number", r.getBankAccountNumber());
+        detail.put("account_holder", r.getAccountHolder());
+        detail.put("status", r.getStatus());
+        detail.put("rejection_reason", r.getRejectionReason());
+        detail.put("admin_note", r.getAdminNote());
+        detail.put("created_at", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
         return detail;
     }
 
     @Transactional
     public Map<String, Object> updateRefundStatus(String refundId, Map<String, Object> payload) {
+        Organizer org = resolveCurrentOrganizer();
+        UUID id;
         try {
-            UUID id = UUID.fromString(refundId);
-            Optional<com.example.eventday.entity.RefundRequestEntity> opt = refundRepository.findById(id);
-            if (opt.isPresent()) {
-                var r = opt.get();
-                String newStatus = (String) payload.getOrDefault("status", payload.getOrDefault("newStatus", "APPROVED"));
-                r.setStatus(newStatus.toUpperCase());
-                if (payload.containsKey("adminNote")) r.setAdminNote((String) payload.get("adminNote"));
-                if (payload.containsKey("admin_note")) r.setAdminNote((String) payload.get("admin_note"));
-                if (payload.containsKey("rejection_reason")) r.setRejectionReason((String) payload.get("rejection_reason"));
-                if ("APPROVED".equalsIgnoreCase(newStatus) || "REJECTED".equalsIgnoreCase(newStatus)) {
-                    r.setProcessedAt(LocalDateTime.now());
-                }
-                r.setUpdatedAt(LocalDateTime.now());
-                refundRepository.save(r);
-                Map<String, Object> res = new HashMap<>();
-                res.put("refund_id", r.getRefundId().toString());
-                res.put("status", r.getStatus());
-                res.put("admin_note", r.getAdminNote());
-                res.put("processed_at", r.getProcessedAt() != null ? r.getProcessedAt().toString() : null);
-                return res;
-            }
-        } catch (Exception e) {
-            log.warn("updateRefundStatus failed {}: {}", refundId, e.getMessage());
+            id = UUID.fromString(refundId);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Format ID refund tidak valid");
         }
+
+        com.example.eventday.entity.RefundRequestEntity r = refundRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Data refund tidak ditemukan"));
+
+        // Ownership Validation: Cegah modifikasi status milik EO lain (Temuan Audit #4)
+        if (r.getOrganizerId() == null || !r.getOrganizerId().equals(org.getOrganizerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Tidak memiliki hak atas event ini");
+        }
+
+        // Logic Flaw Guard: Cegah refund ganda jika status sudah final (Temuan Audit #5)
+        if ("APPROVED".equalsIgnoreCase(r.getStatus()) || "REJECTED".equalsIgnoreCase(r.getStatus())) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "Pengajuan refund sudah diproses sebelumnya (" + r.getStatus() + ")"
+            );
+        }
+
+        String rawStatus = payload != null ? (String) payload.getOrDefault("status", payload.get("newStatus")) : null;
+        String newStatus = (rawStatus != null && !rawStatus.isBlank()) ? rawStatus.trim().toUpperCase() : "APPROVED";
+
+        // Validasi transisi status hanya APPROVED atau REJECTED
+        if (!"APPROVED".equals(newStatus) && !"REJECTED".equals(newStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Status refund tidak valid (hanya APPROVED atau REJECTED)");
+        }
+
+        r.setStatus(newStatus);
+        if (payload != null) {
+            if (payload.containsKey("adminNote")) r.setAdminNote((String) payload.get("adminNote"));
+            if (payload.containsKey("admin_note")) r.setAdminNote((String) payload.get("admin_note"));
+            if (payload.containsKey("rejection_reason")) r.setRejectionReason((String) payload.get("rejection_reason"));
+        }
+        r.setProcessedAt(LocalDateTime.now());
+        r.setUpdatedAt(LocalDateTime.now());
+        refundRepository.save(r);
+
         Map<String, Object> res = new HashMap<>();
-        res.put("refund_id", refundId);
-        res.put("status", payload.getOrDefault("status", "APPROVED"));
-        res.put("notes", payload.getOrDefault("notes", "Disetujui oleh EO"));
-        res.put("mock", true);
+        res.put("refund_id", r.getRefundId().toString());
+        res.put("status", r.getStatus());
+        res.put("admin_note", r.getAdminNote());
+        res.put("processed_at", r.getProcessedAt() != null ? r.getProcessedAt().toString() : null);
         return res;
     }
 
@@ -642,11 +634,15 @@ public class OrganizerService {
 
     private Organizer resolveCurrentOrganizer() {
         UUID uid = currentUserId();
-        if (uid != null) {
-            Optional<Organizer> opt = organizerRepository.findByUserUserId(uid);
-            if (opt.isPresent()) return opt.get();
+        if (uid == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED, "Autentikasi diperlukan"
+            );
         }
-        return organizerRepository.findAll().stream().findFirst().orElse(null);
+        return organizerRepository.findByUserUserId(uid)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "Akun tidak terdaftar sebagai Organizer"
+                ));
     }
 
     public List<Map<String, Object>> getOrganizerEvents() {
@@ -851,23 +847,31 @@ public class OrganizerService {
     }
 
     public Map<String, Object> getPayoutDetailByString(String id) {
+        Organizer org = resolveCurrentOrganizer();
+        UUID uid;
         try {
-            UUID uid = UUID.fromString(id);
-            Optional<com.example.eventday.entity.RefundRequestEntity> opt = refundRepository.findById(uid);
-            if (opt.isPresent()) {
-                var r = opt.get();
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("id", r.getRefundId().toString());
-                detail.put("amount", r.getAmount());
-                detail.put("status", r.getStatus());
-                detail.put("bank_name", r.getBankName());
-                detail.put("account_number", r.getBankAccountNumber());
-                detail.put("account_holder", r.getAccountHolder());
-                detail.put("created_at", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
-                return detail;
-            }
-        } catch (Exception ignored) {}
-        return getPayoutDetail(101L);
+            uid = UUID.fromString(id);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Format ID payout tidak valid");
+        }
+
+        com.example.eventday.entity.RefundRequestEntity r = refundRepository.findById(uid)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Data payout tidak ditemukan"));
+
+        // Ownership Validation: Cegah IDOR antar EO (Audit Temuan #4)
+        if (r.getOrganizerId() == null || !r.getOrganizerId().equals(org.getOrganizerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Data bukan milik Anda");
+        }
+
+        Map<String, Object> detail = new HashMap<>();
+        detail.put("id", r.getRefundId().toString());
+        detail.put("amount", r.getAmount());
+        detail.put("status", r.getStatus());
+        detail.put("bank_name", r.getBankName());
+        detail.put("account_number", r.getBankAccountNumber());
+        detail.put("account_holder", r.getAccountHolder());
+        detail.put("created_at", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
+        return detail;
     }
 
     private Map<String, Object> mapEventToResponse(Event event) {
