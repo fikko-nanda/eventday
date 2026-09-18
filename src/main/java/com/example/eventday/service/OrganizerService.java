@@ -629,7 +629,7 @@ public class OrganizerService {
     }
 
     // ==========================================
-    // MANAJEMEN EVENT EO (PERSISTEN DB)
+    // MANAJEMEN EVENT EO (PERSISTEN DB + SECURE)
     // ==========================================
 
     private Organizer resolveCurrentOrganizer() {
@@ -668,9 +668,6 @@ public class OrganizerService {
     @Transactional
     public Map<String, Object> createEvent(Map<String, Object> payload) {
         Organizer org = resolveCurrentOrganizer();
-        if (org == null) {
-            throw new RuntimeException("Organizer tidak ditemukan atau belum login");
-        }
 
         LocalDateTime start = payload.get("startDate") != null || payload.get("start_date") != null
                 ? LocalDateTime.parse(String.valueOf(payload.getOrDefault("startDate", payload.get("start_date"))).replace(" ", "T"))
@@ -702,13 +699,19 @@ public class OrganizerService {
 
     @Transactional
     public Map<String, Object> updateEvent(Map<String, Object> payload) {
+        Organizer org = resolveCurrentOrganizer();
         String idStr = String.valueOf(payload.getOrDefault("eventId", payload.getOrDefault("event_id", payload.get("id"))));
         if (idStr == null || "null".equals(idStr)) {
-            throw new RuntimeException("Event ID wajib diisi");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Event ID wajib diisi");
         }
 
         Event event = eventRepository.findById(UUID.fromString(idStr))
-                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
+
+        // Ownership Validation
+        if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
+        }
 
         if (payload.containsKey("title")) event.setTitle((String) payload.get("title"));
         if (payload.containsKey("description")) event.setDescription((String) payload.get("description"));
@@ -735,13 +738,19 @@ public class OrganizerService {
 
     @Transactional
     public Map<String, Object> publishEvent(Map<String, Object> payload) {
+        Organizer org = resolveCurrentOrganizer();
         String idStr = String.valueOf(payload.getOrDefault("eventId", payload.getOrDefault("event_id", payload.get("id"))));
         if (idStr == null || "null".equals(idStr)) {
-            throw new RuntimeException("Event ID wajib diisi");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Event ID wajib diisi");
         }
 
         Event event = eventRepository.findById(UUID.fromString(idStr))
-                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
+
+        // Ownership Validation
+        if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
+        }
 
         event.setStatus("PUBLISHED");
         event.setUpdatedAt(LocalDateTime.now());
@@ -757,8 +766,14 @@ public class OrganizerService {
     }
 
     public Map<String, Object> getEventSalesSummary(UUID eventId) {
+        Organizer org = resolveCurrentOrganizer();
         Event event = eventRepository.findById(eventId)
-                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
+
+        // Ownership Validation
+        if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
+        }
 
         long ticketsSold = orderRepository.findAll().stream()
                 .filter(o -> o.getEvent() != null && o.getEvent().getEventId().equals(eventId))
