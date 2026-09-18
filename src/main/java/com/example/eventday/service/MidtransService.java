@@ -21,6 +21,7 @@ import java.util.Map;
 
 @Slf4j
 @Service
+@SuppressWarnings("null")
 public class MidtransService {
 
     @Value("${midtrans.server-key}")

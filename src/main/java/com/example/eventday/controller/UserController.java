@@ -27,6 +27,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class UserController {
 
     private final UserService userService;
