@@ -26,7 +26,12 @@ public class TicketService {
 
     @Transactional
     public List<TicketItem> generateTicketsForOrder(Order order) {
-        // Konversi UUID orderId ke String agar sesuai dengan AttendeeRepository
+        // Idempotency Check: Jika tiket sudah diterbitkan, langsung kembalikan tiket yang ada
+        List<TicketItem> existingTickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
+        if (existingTickets != null && !existingTickets.isEmpty()) {
+            return existingTickets;
+        }
+
         String orderIdStr = order.getOrderId() != null ? order.getOrderId().toString() : "";
         List<Attendee> attendees = attendeeRepository.findByOrderId(orderIdStr);
         List<TicketItem> generatedTickets = new ArrayList<>();
@@ -43,7 +48,6 @@ public class TicketService {
                 generatedTickets.add(ticket);
             }
         } else {
-            // Fallback jika data peserta khusus di tabel Attendee belum diisi
             String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
                     ? order.getCustomer().getEmail() : "";
 
@@ -70,6 +74,7 @@ public class TicketService {
                 .attendeeEmail(attendeeEmail)
                 .attendeeNik(attendeeNik)
                 .checkInStatus("UNREDEEMED")
+                .createdAt(LocalDateTime.now())
                 .build();
 
         return ticketItemRepository.save(ticketItem);

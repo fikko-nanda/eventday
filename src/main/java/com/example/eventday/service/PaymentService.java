@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -16,6 +18,7 @@ import java.util.UUID;
 public class PaymentService {
 
     private final OrderRepository orderRepository;
+    private final TicketService ticketService;
 
     @Transactional(readOnly = true)
     public CheckoutSummaryResponse getCheckoutSummary(UUID orderId) {
@@ -46,13 +49,10 @@ public class PaymentService {
         Order order = orderRepository.findById(request.getOrderId())
                 .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan"));
 
-        // Charge boleh dari PENDING (langsung) atau WAITING_PAYMENT (sesudah checkout/process) —
-        // charge ulang me-regenerate VA (mock). Yang ditolak: order yang sudah final/kedaluwarsa.
         if (!"PENDING".equalsIgnoreCase(order.getStatus()) && !"WAITING_PAYMENT".equalsIgnoreCase(order.getStatus())) {
             throw new IllegalStateException("Order tidak dapat di-charge pada status " + order.getStatus());
         }
 
-        // Mock Virtual Account Generator
         String vaNumber = "88325" + (System.currentTimeMillis() % 1000000000L);
         order.setStatus("WAITING_PAYMENT");
         order.setPaymentMethod(request.getPaymentMethod());
@@ -69,5 +69,45 @@ public class PaymentService {
                 .virtualAccountNumber(vaNumber)
                 .expiredAt(order.getExpiredAt())
                 .build();
+    }
+
+    /**
+     * Memproses callback/webhook notifikasi pembayaran dari Midtrans.
+     * Mengubah status order menjadi PAID dan otomatis menerbitkan tiket ke database.
+     */
+    @Transactional
+    public void processMidtransNotification(Map<String, Object> payload) {
+        String orderIdStr = (String) payload.get("order_id");
+        String transactionStatus = (String) payload.get("transaction_status");
+        String fraudStatus = (String) payload.get("fraud_status");
+
+        if (orderIdStr == null) {
+            throw new IllegalArgumentException("Payload webhook tidak valid: order_id kosong");
+        }
+
+        if (orderIdStr.startsWith("ORD-")) {
+            orderIdStr = orderIdStr.replace("ORD-", "");
+        }
+        UUID orderId = UUID.fromString(orderIdStr);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan dengan ID: " + orderId));
+
+        boolean isSuccess = "settlement".equals(transactionStatus)
+                || ("capture".equals(transactionStatus) && "accept".equals(fraudStatus));
+
+        if (isSuccess) {
+            if (!"PAID".equals(order.getStatus())) {
+                order.setStatus("PAID");
+                order.setPaidAt(LocalDateTime.now());
+                orderRepository.save(order);
+
+                // Menerbitkan record tiket ke database ticket_items
+                ticketService.generateTicketsForOrder(order);
+            }
+        } else if ("cancel".equals(transactionStatus) || "expire".equals(transactionStatus) || "deny".equals(transactionStatus)) {
+            order.setStatus("CANCELLED");
+            orderRepository.save(order);
+        }
     }
 }
