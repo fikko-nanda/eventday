@@ -847,15 +847,18 @@ public class OrganizerService {
         return orderRepository.findAll().stream()
                 .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
                         && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
-                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                .sorted((a, b) -> {
+                    if (a.getCreatedAt() == null || b.getCreatedAt() == null) return 0;
+                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                })
                 .limit(5)
                 .map(o -> {
                     Map<String, Object> m = new HashMap<>();
-                    m.put("order_id", o.getOrderId().toString());
-                    m.put("event_title", o.getEvent().getTitle());
+                    m.put("order_id", o.getOrderId() != null ? o.getOrderId().toString() : null);
+                    m.put("event_title", o.getEvent() != null ? o.getEvent().getTitle() : "-");
                     m.put("amount", o.getTotalAmount());
                     m.put("status", o.getStatus());
-                    m.put("created_at", o.getCreatedAt().toString());
+                    m.put("created_at", o.getCreatedAt() != null ? o.getCreatedAt().toString() : null);
                     return m;
                 })
                 .collect(Collectors.toList());
