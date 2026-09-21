@@ -2,16 +2,19 @@ package com.example.eventday.service.organizer;
 
 import com.example.eventday.entity.Event;
 import com.example.eventday.entity.Organizer;
+import com.example.eventday.entity.TicketTier;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.OrderRepository;
+import com.example.eventday.repository.TicketTierRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -24,6 +27,7 @@ public class OrganizerEventService {
     private final OrganizerHelperService helperService;
     private final EventRepository eventRepository;
     private final OrderRepository orderRepository;
+    private final TicketTierRepository ticketTierRepository;
 
     public Map<String, Object> uploadBanner(MultipartFile file) {
         String url = helperService.saveFile(file, "event-banners");
@@ -57,6 +61,7 @@ public class OrganizerEventService {
     @Transactional
     public Map<String, Object> createEvent(Map<String, Object> payload) {
         Organizer org = helperService.resolveCurrentOrganizer();
+        UUID currentUid = helperService.currentUserId();
 
         LocalDateTime start = payload.get("startDate") != null || payload.get("start_date") != null
                 ? LocalDateTime.parse(String.valueOf(payload.getOrDefault("startDate", payload.get("start_date"))).replace(" ", "T"))
@@ -79,11 +84,67 @@ public class OrganizerEventService {
                 .endDate(end)
                 .status("DRAFT")
                 .isFeatured(false)
-                .createBy(helperService.currentUserId())
+                .createBy(currentUid)
                 .build();
 
         Event saved = eventRepository.save(event);
-        return mapEventToResponse(saved);
+
+        // --- PROSES SIMPAN TICKET TIERS ---
+        List<Map<String, Object>> ticketsResponse = new ArrayList<>();
+        Object ticketsRaw = payload.get("tickets");
+
+        if (ticketsRaw instanceof List<?> ticketList) {
+            for (Object item : ticketList) {
+                if (item instanceof Map<?, ?> rawMap) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> tMap = (Map<String, Object>) rawMap;
+
+                    Object nameObj = tMap.get("tier_name");
+                    if (nameObj == null) nameObj = tMap.get("tierName");
+                    String tierName = nameObj != null ? String.valueOf(nameObj) : "Regular";
+
+                    BigDecimal price = BigDecimal.ZERO;
+                    if (tMap.get("price") != null) {
+                        try {
+                            price = new BigDecimal(String.valueOf(tMap.get("price")));
+                        } catch (Exception ignored) {}
+                    }
+
+                    int totalQuota = 0;
+                    Object quotaRaw = tMap.get("total_quota");
+                    if (quotaRaw == null) quotaRaw = tMap.get("totalQuota");
+                    if (quotaRaw == null) quotaRaw = tMap.get("quota");
+                    if (quotaRaw != null) {
+                        try {
+                            totalQuota = Integer.parseInt(String.valueOf(quotaRaw));
+                        } catch (Exception ignored) {}
+                    }
+
+                    TicketTier tier = TicketTier.builder()
+                            .event(saved)
+                            .tierName(tierName)
+                            .price(price)
+                            .totalQuota(totalQuota)
+                            .availableQuota(totalQuota)
+                            .createBy(currentUid)
+                            .build();
+
+                    TicketTier savedTier = ticketTierRepository.save(tier);
+
+                    Map<String, Object> tierData = new HashMap<>();
+                    tierData.put("tier_id", savedTier.getTierId() != null ? savedTier.getTierId().toString() : null);
+                    tierData.put("tier_name", savedTier.getTierName());
+                    tierData.put("price", savedTier.getPrice());
+                    tierData.put("total_quota", savedTier.getTotalQuota());
+                    tierData.put("available_quota", savedTier.getAvailableQuota());
+                    ticketsResponse.add(tierData);
+                }
+            }
+        }
+
+        Map<String, Object> response = mapEventToResponse(saved);
+        response.put("tickets", ticketsResponse);
+        return response;
     }
 
     @Transactional
