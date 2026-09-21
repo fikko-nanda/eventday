@@ -823,6 +823,31 @@ curl -b admin-cookies.txt "localhost:8082/api/admin/payouts?status=PENDING"
 curl -b admin-cookies.txt localhost:8082/api/admin/payouts/<uuid>
 curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/payouts/<uuid>/status -H "Content-Type: application/json" -d '{"status":"APPROVED","adminNote":"Cairkan"}'
 curl -b admin-cookies.txt localhost:8082/api/admin/payouts/<uuid>/documents/reconciliation
+
+# Admin Event Management (Phase 1)
+curl -b admin-cookies.txt "localhost:8082/api/admin/events?status=PUBLISHED&category=MUSIC_FESTIVAL&page=0&size=20"
+curl -b admin-cookies.txt localhost:8082/api/admin/events/<uuid>
+curl -b admin-cookies.txt -X POST localhost:8082/api/admin/events -H "Content-Type: application/json" -d '{"title":"Event Baru","description":"Deskripsi","category":"MUSIC_FESTIVAL","venueName":"Gedung X","eventDate":"2026-12-01T10:00:00","ticketTiers":[{"name":"VIP","price":500000,"quota":50}]}'
+curl -b admin-cookies.txt -X PUT localhost:8082/api/admin/events/<uuid> -H "Content-Type: application/json" -d '{"title":"Event Update","description":"Update","category":"MUSIC_FESTIVAL","venueName":"Gedung X","eventDate":"2026-12-01T10:00:00"}'
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/events/<uuid>/status -H "Content-Type: application/json" -d '{"status":"PUBLISHED"}'
+curl -b admin-cookies.txt -X DELETE localhost:8082/api/admin/events/<uuid>
+curl -b admin-cookies.txt localhost:8082/api/admin/events/<uuid>/sales
+curl -b admin-cookies.txt localhost:8082/api/admin/events/export?status=PUBLISHED > events.csv
+
+# Admin Ticket Management (Phase 1)
+curl -b admin-cookies.txt "localhost:8082/api/admin/tickets?eventId=<uuid>&status=UNREDEEMED&page=0&size=20"
+curl -b admin-cookies.txt localhost:8082/api/admin/tickets/<uuid>
+curl -b admin-cookies.txt -X POST localhost:8082/api/admin/tickets/generate -H "Content-Type: application/json" -d '{"orderId":"<uuid>"}'
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/tickets/<uuid>/revoke
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/tickets/<uuid>/checkin
+curl -b admin-cookies.txt localhost:8082/api/admin/tickets/inventory/<uuid>
+curl -b admin-cookies.txt localhost:8082/api/admin/tickets/export?status=UNREDEEMED > tickets.csv
+
+# Admin Transaction Management (Phase 1)
+curl -b admin-cookies.txt "localhost:8082/api/admin/transactions?status=PAID&page=0&size=20"
+curl -b admin-cookies.txt localhost:8082/api/admin/transactions/<uuid>
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/transactions/<uuid>/status -H "Content-Type: application/json" -d '{"status":"REFUNDED","adminNote":"Refund dikabulkan"}'
+curl -b admin-cookies.txt localhost:8082/api/admin/transactions/export?status=PAID > transactions.csv
 ```
 
 ---
@@ -1058,7 +1083,7 @@ Fix: `@GetMapping({"/terms-conditions","/api/terms-conditions"})` + `SecurityCon
 **Dashboard EO — 3 stub BARU (PR #25, semua ⚠️ MOCK, Bearer; bedakan dengan `GET /api/organizer/dashboard` hybrid di atas)**
 **GET `/api/organizer/dashboard/metrics`** → `200`: `{totalEvents:0,totalRevenue:0,totalTicketsSold:0}`. **GET `/api/organizer/dashboard/recent-events`** → `200 data: []`. **GET `/api/organizer/dashboard/recent-transactions`** → `200 data: []`.
 
-### 17.11 Admin — `/admin/**` (21 endpoint, semua ADMIN, `adminId` dari `authentication.getName()`)
+### 17.11 Admin — `/admin/**` (39 endpoint, semua ADMIN, `adminId` dari `authentication.getName()`)
 
 CUSTOMER/ORGANIZER → `403 {"msg":"Forbidden: akses ditolak","status":403}`. Error umum: UUID path tak valid → `400`; id tak ada → `400 Pengajuan/Aplikasi ... tidak ditemukan!`.
 
@@ -1071,6 +1096,12 @@ CUSTOMER/ORGANIZER → `403 {"msg":"Forbidden: akses ditolak","status":403}`. Er
 **EO Applications** (`AdminEoController` `/api/admin/eo-applications`, via `Organizer` entity — TAK ADA tabel terpisah): **GET `?status=`** → `200 [AdminEoApplicationResponse]` (`status` opsional: `UNVERIFIED`/`VERIFIED`/`REJECTED`/`ALL`/kosong = semua). Item: `{organizerId,userId,nameOrganizer,userEmail,userPhone,npwpNumber,bankName,bankAccountNumber,aktaPerusahaan,verificationStatus,createdAt}`. **GET `/{id}`** → `200` satu aplikasi (`400 Aplikasi EO tidak ditemukan!`). **PATCH `/{id}/status`** → `200 data:null` + audit `VERIFY_EO`. Body (`AdminEoStatusRequest`, `@Valid`): `status` (Ya, `@NotBlank` — `VERIFIED`/`REJECTED`, uppercased; nilai lain diterima apa adanya), `rejectionReason` (Tidak — **opsional**, hanya ditempel ke audit log bila ada). `VERIFIED` otomatis set `users.role=ORGANIZER`. **GET `/{id}/documents/company-deed`** → `200 {documentUrl:"..."}` (`""` bila null).
 
 **Payouts** (`AdminPayoutController` `/api/admin/payouts`, sharing tabel `refund_requests` — TAK ADA tabel terpisah): **GET `?status=`** → `200 [PayoutResponse]` (`{payoutId,organizerId,nameOrganizer ("-" bila null),amount,bankName,accountNumber,accountHolder,status,rejectionReason,adminNote,createdAt,updatedAt}`) — ⚠️ tanpa discriminator, refund customer ikut muncul. **GET `/{id}`** → `200 PayoutDetailResponse` (+`userEmail:null,userPhone:null,reconciliationDocumentUrl`). **PATCH `/{id}/status`** → `200 PayoutDetailResponse` terbaru. Body (`UpdatePayoutStatusRequest`, `@Valid`): `status` (Ya, `@NotBlank`), `adminNote` (Tidak); APPROVED → `processedAt=now` + audit `UPDATE_PAYOUT_STATUS`. **GET `/{id}/documents/reconciliation`** → `200` detail (termasuk `reconciliationDocumentUrl`, null sampai diisi manual).
+
+**Events** (`AdminEventController` `/api/admin/events`, dual alias `/admin/events`): **GET `?status=&category=&organizerId=&dateFrom=&dateTo=&search=&page=0&size=20`** → `200 Page<AdminEventListResponse>` (`{eventId,title,category,venueName,startDate,endDate,status,isFeatured,organizerId,organizerName,bannerUrl,createdAt}`). Filter: `status` (DRAFT/PUBLISHED/CANCELLED/DELETED), `category` (MUSIC_FESTIVAL/SEMINAR/etc.), `organizerId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `search` (keyword di title/description/venue). **GET `/{id}`** → `200 AdminEventResponse` (`{eventId,organizerId,organizerName,title,description,category,venueName,startDate,endDate,status,isFeatured,bannerUrl,facility,lineup,ticketTiers:[{tierId,tierName,price,totalQuota,availableQuota,soldCount}],salesSummary:{totalOrders,ticketsSold,revenuePaid,revenuePending},createdAt}`). **POST** → `201 AdminEventResponse` + audit. Body (`CreateEventRequest`, `@Valid`): `title` (string), `description` (string), `category` (string), `location` (string), `venueName` (string), `eventDate` (ISO datetime), `bannerUrl` (string nullable), `facilities` (List<String> nullable), `ticketTiers` (List<{name,price,quota}> nullable). **PUT `/{id}`** → `200 AdminEventResponse` + audit. Body sama dengan POST. **PATCH `/{id}/status`** → `200 data:null` + audit. Body (`AdminEventStatusRequest`, `@Valid`): `status` (@NotBlank — DRAFT/PUBLISHED/CANCELLED/DELETED), `rejectionReason` (opsional). **DELETE `/{id}`** → `200 data:null` + audit `DELETE_EVENT` (soft delete: status → DELETED). **GET `/{id}/sales`** → `200 AdminEventSalesResponse` (`{totalOrders,totalTicketsSold,totalRevenuePaid,totalRevenuePending,salesByTier:{"tierName":{tierName,totalQuota,availableQuota,soldCount,revenue}}}`). **GET `/export?status=&category=&organizerId=&dateFrom=&dateTo=&search=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="events.csv"`). Header: `eventId,title,category,venueName,startDate,endDate,status,organizerName,isFeatured,createdAt`.
+
+**Tickets** (`AdminTicketController` `/api/admin/tickets`, dual alias `/admin/tickets`): **GET `?eventId=&status=&userId=&dateFrom=&dateTo=&page=0&size=20`** → `200 Page<AdminTicketListResponse>` (`{ticketItemId,ticketCode,eventId,eventTitle,tierName,tierPrice,attendeeName,attendeeEmail,checkInStatus,checkInAt,orderId,orderNumber,createdAt}`). Filter: `eventId` (UUID), `status` (UNREDEEMED/USED/EXPIRED/REFUNDED), `userId` (UUID), `dateFrom`/`dateTo` (ISO datetime). **GET `/{id}`** → `200 AdminTicketResponse` (`{ticketItemId,ticketCode,orderId,orderNumber,eventId,eventTitle,eventVenue,eventDate,tierName,tierPrice,attendeeName,attendeeEmail,attendeeNik,checkInStatus,checkInAt,customerName,customerEmail,createdAt}`). **POST `/generate`** → `201 List<AdminTicketResponse>` + audit. Body (`AdminTicketGenerateRequest`, `@Valid`): `orderId` (@NotNull UUID). Generate tiket dari `order_attendees` terkait orderId. **PATCH `/{id}/revoke`** → `200 data:null` + audit `REVOKE_TICKET` (status → CANCELLED). **PATCH `/{id}/checkin`** → `200 data:null` + audit `CHECKIN_TICKET` (checkInStatus → USED, checkInAt = now). **GET `/inventory/{eventId}`** → `200 Map<String,Object>` (`{eventId,eventTitle,tiers:[{tierId,tierName,totalQuota,availableQuota,soldCount}],totalCapacity,totalSold}`). **GET `/export?eventId=&status=&dateFrom=&dateTo=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="tickets.csv"`). Header: `ticketItemId,ticketCode,eventTitle,tierName,tierPrice,attendeeName,attendeeEmail,checkInStatus,checkInAt,orderNumber,createdAt`.
+
+**Transactions** (`AdminTransactionController` `/api/admin/transactions`, dual alias `/admin/transactions`): **GET `?status=&eventId=&userId=&dateFrom=&dateTo=&minAmount=&maxAmount=&page=0&size=20`** → `200 Page<AdminTransactionListResponse>` (`{orderId,orderNumber,eventTitle,tierName,quantity,totalAmount,status,customerName,customerEmail,paidAt,createdAt}`). Filter: `status` (PENDING/WAITING_PAYMENT/PAID/EXPIRED/CANCELLED/REFUNDED), `eventId`/`userId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `minAmount`/`maxAmount` (BigDecimal). **GET `/{id}`** → `200 AdminTransactionResponse` (`{orderId,orderNumber,eventId,eventTitle,eventVenue,tierName,tierPrice,quantity,subtotal,adminFee,totalAmount,status,paymentMethod,transactionIdGateway,customerId,customerName,customerEmail,paidAt,expiredAt,createdAt}`). **PATCH `/{id}/status`** → `200 data:null` + audit `UPDATE_TRANSACTION_STATUS`. Body (`AdminTransactionStatusRequest`, `@Valid`): `status` (@NotBlank — PAID/REFUNDED/CANCELLED/WAITING_PAYMENT), `adminNote` (opsional). Validasi transisi: PENDING/WAITING_PAYMENT → boleh ubah; PAID/REFUNDED/CANCELLED → `400 "Status transaksi tidak dapat diubah dari status [X]!"`. **GET `/export?status=&eventId=&userId=&dateFrom=&dateTo=&minAmount=&maxAmount=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="transactions.csv"`). Header: `orderId,orderNumber,eventTitle,tierName,quantity,totalAmount,status,customerName,customerEmail,paidAt,createdAt`.
 
 ### 17.12 Perubahan BREAKING + file statis (PR #23–25, wajib dibaca frontend)
 
@@ -1443,6 +1474,48 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 
 > **Catatan payout:** tidak ada entity `Payout` terpisah — pakai `RefundRequestEntity` (tabel `refund_requests`). Sejak PR #24 `submitRefund()` selalu isi `organizerId` (real dari event, fallback = customerId) → filter `organizerId IS NOT NULL` **tak lagi memisahkan** refund vs payout. Perlu discriminator baru (mis. kolom `type`, atau payout = baris dengan `orderId IS NULL` karena `createPayout` EO tak set orderId).
 
+### Admin Event Management — ✅ 8/8
+
+| Method | Endpoint | Status | Controller/Service |
+|---|---|---|---|
+| GET | `/api/admin/events[?status=&category=&organizerId=&dateFrom=&dateTo=&search=&page=0&size=20]` | ✅ | `AdminEventController` → `AdminEventService` (Specification filter + pagination) |
+| GET | `/api/admin/events/{id}` | ✅ | Detail + `TierInfo[]` + `SalesSummary` |
+| POST | `/api/admin/events` | ✅ | Create via `CreateEventRequest` + audit `CREATE_EVENT` |
+| PUT | `/api/admin/events/{id}` | ✅ | Update via `CreateEventRequest` + audit `UPDATE_EVENT` |
+| PATCH | `/api/admin/events/{id}/status` | ✅ | Status update (DRAFT/PUBLISHED/CANCELLED/DELETED) + audit |
+| DELETE | `/api/admin/events/{id}` | ✅ | Soft delete (status → DELETED) + audit `DELETE_EVENT` |
+| GET | `/api/admin/events/{id}/sales` | ✅ | `AdminEventSalesResponse` (totalOrders, ticketsSold, revenuePaid/Pending, salesByTier) |
+| GET | `/api/admin/events/export[?status=&category=&...]` | ✅ | CSV binary download (`Content-Disposition: attachment`) |
+
+**Filter query params (semua opsional):** `status` (DRAFT/PUBLISHED/CANCELLED/DELETED), `category` (MUSIC_FESTIVAL/SEMINAR/etc.), `organizerId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `search` (keyword title/description/venue).
+
+### Admin Ticket Management — ✅ 7/7
+
+| Method | Endpoint | Status | Controller/Service |
+|---|---|---|---|
+| GET | `/api/admin/tickets[?eventId=&status=&userId=&dateFrom=&dateTo=&page=0&size=20]` | ✅ | `AdminTicketController` → `AdminTicketService` (Specification + pagination) |
+| GET | `/api/admin/tickets/{id}` | ✅ | Detail tiket + customer info + event info |
+| POST | `/api/admin/tickets/generate` | ✅ | Generate tiket dari `order_attendees` (body: `{orderId}`) + audit |
+| PATCH | `/api/admin/tickets/{id}/revoke` | ✅ | Status → CANCELLED + audit `REVOKE_TICKET` |
+| PATCH | `/api/admin/tickets/{id}/checkin` | ✅ | checkInStatus → USED + checkInAt=now + audit `CHECKIN_TICKET` |
+| GET | `/api/admin/tickets/inventory/{eventId}` | ✅ | Ringkasan kapasitas per tier (`{eventId,eventTitle,tiers:[],totalCapacity,totalSold}`) |
+| GET | `/api/admin/tickets/export[?eventId=&status=&dateFrom=&dateTo=]` | ✅ | CSV binary download |
+
+**Filter query params (semua opsional):** `eventId` (UUID), `status` (UNREDEEMED/USED/EXPIRED/REFUNDED), `userId` (UUID), `dateFrom`/`dateTo` (ISO datetime).
+
+### Admin Transaction Management — ✅ 4/4
+
+| Method | Endpoint | Status | Controller/Service |
+|---|---|---|---|
+| GET | `/api/admin/transactions[?status=&eventId=&userId=&dateFrom=&dateTo=&minAmount=&maxAmount=&page=0&size=20]` | ✅ | `AdminTransactionController` → `AdminTransactionService` (Specification + pagination) |
+| GET | `/api/admin/transactions/{id}` | ✅ | Detail transaksi (order, payment, customer info) |
+| PATCH | `/api/admin/transactions/{id}/status` | ✅ | Status update + validasi transisi + audit `UPDATE_TRANSACTION_STATUS` |
+| GET | `/api/admin/transactions/export[?status=&eventId=&userId=&...]` | ✅ | CSV binary download |
+
+**Filter query params (semua opsional):** `status` (PENDING/WAITING_PAYMENT/PAID/EXPIRED/CANCELLED/REFUNDED), `eventId`/`userId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `minAmount`/`maxAmount` (BigDecimal).
+
+**Validasi transisi status transaksi:** PENDING/WAITING_PAYMENT → boleh ubah ke PAID/REFUNDED/CANCELLED/WAITING_PAYMENT; PAID → hanya bisa ke REFUNDED; REFUNDED/CANCELLED → tidak bisa diubah (`400 "Status transaksi tidak dapat diubah dari status [X]!"`).
+
 ---
 
 ## B. ENDPOINT YANG BELUM ADA (perlu dibuat)
@@ -1531,7 +1604,10 @@ src/main/java/com/example/eventday/
 │       ├── AdminUserController.java       # /api/admin/users/* (4)
 │       ├── AdminSettingsController.java   # /api/admin/audit-logs*, /api/admin/settings/* (6: 3 lama + export/export-csv/upload-logo baru)
 │       ├── AdminEoController.java         # /api/admin/eo-applications/* (4, merge 4836263)
-│       └── AdminPayoutController.java     # /api/admin/payouts/* (4, committed PR #24)
+│       ├── AdminPayoutController.java     # /api/admin/payouts/* (4, committed PR #24)
+│       ├── AdminEventController.java      # /api/admin/events/* (8: list/detail/create/update/status/delete/sales/export)
+│       ├── AdminTicketController.java     # /api/admin/tickets/* (7: list/detail/generate/revoke/checkin/inventory/export)
+│       └── AdminTransactionController.java # /api/admin/transactions/* (4: list/detail/status/export)
 ├── service/
 │   ├── AuthService.java
 │   ├── EventService.java
@@ -1551,7 +1627,10 @@ src/main/java/com/example/eventday/
 │       ├── AdminUserService.java
 │       ├── AdminSettingsService.java     # + exportAuditLogs/exportCsv/uploadLogo (PR #24)
 │       ├── AdminEoService.java           # pakai Organizer entity (merge 4836263)
-│       └── AdminPayoutService.java       # committed PR #24 — via RefundRepository + OrganizerRepository
+│       ├── AdminPayoutService.java       # committed PR #24 — via RefundRepository + OrganizerRepository
+│       ├── AdminEventService.java        # CRUD + sales + export + Specification filter (Phase 1)
+│       ├── AdminTicketService.java       # ticket management + inventory + export (Phase 1)
+│       └── AdminTransactionService.java  # transaction management + status validation + export (Phase 1)
 ├── entity/
 │   ├── User.java, Auth.java, Otp.java, Organizer.java, Event.java
 │   ├── TicketTier.java, Booking.java, Order.java, TicketItem.java
@@ -1562,22 +1641,30 @@ src/main/java/com/example/eventday/
 │   ├── BankResponse.java, RefundDetailResponse.java, RefundRequest.java  # Refund DTOs
 │   ├── admin/PayoutResponse.java, admin/PayoutDetailResponse.java, admin/UpdatePayoutStatusRequest.java  # BARU payout
 │   ├── admin/AuditLogExportResponse.java  # BARU export audit
+│   ├── admin/AdminEventRequest.java, admin/AdminEventResponse.java, admin/AdminEventListResponse.java  # Phase 1 events
+│   ├── admin/AdminEventStatusRequest.java, admin/AdminEventSalesResponse.java  # Phase 1 events
+│   ├── admin/AdminTicketResponse.java, admin/AdminTicketListResponse.java  # Phase 1 tickets
+│   ├── admin/AdminTicketGenerateRequest.java  # Phase 1 tickets
+│   ├── admin/AdminTransactionResponse.java, admin/AdminTransactionListResponse.java  # Phase 1 transactions
+│   ├── admin/AdminTransactionStatusRequest.java  # Phase 1 transactions
 │   ├── AdminDashboardMetricsResponse.java, AdminUserListItemResponse.java, AdminUserStatusRequest.java  # Admin DTOs
 │   └── (semua DTO lain yang sudah ada)
 └── repository/
     ├── UserRepository.java, AuthRepository.java, OtpRepository.java
-    ├── EventRepository.java, TicketTierRepository.java, OrderRepository.java
-    ├── AttendeeRepository.java, TicketItemRepository.java
+    ├── EventRepository.java, TicketTierRepository.java, OrderRepository.java  # +JpaSpecificationExecutor (Phase 1)
+    ├── AttendeeRepository.java, TicketItemRepository.java  # +JpaSpecificationExecutor + findByEvent (Phase 1)
     ├── RefundRepository.java         # + findByOrganizerId/findByStatus/findAllByOrderByCreatedAtDesc (baru)
     ├── AuditLogRepository.java       # + findAllForExport() (baru)
-    └── OrganizerRepository.java      # + findByVerificationStatus (PR #21)
+    └── OrganizerRepository.java      # + findByVerificationStatus (PR #21) + JpaSpecificationExecutor (Phase 1)
+├── util/
+│   └── CsvUtil.java                  # NEW Phase 1: centralized CSV escape/export utility
 ```
 
 ---
 
 ## E. SERVICES — SUDAH ADA vs PERLU BARU
 
-**SUDAH ADA (jangan buat ulang):** `AdminEoService`, `AdminPayoutService`, `AdminSettingsService` (+ `AdminDashboardService`, `AdminUserService`).
+**SUDAH ADA (jangan buat ulang):** `AdminEoService`, `AdminPayoutService`, `AdminSettingsService` (+ `AdminDashboardService`, `AdminUserService`). **Phase 1 BARU:** `AdminEventService`, `AdminTicketService`, `AdminTransactionService` + `CsvUtil`.
 
 | Service | Path | Status |
 |---|---|---|
@@ -1586,7 +1673,7 @@ src/main/java/com/example/eventday/
 
 ## F. ENTITIES/DTOs/REPOS — SUDAH ADA vs PERLU BARU
 
-**SUDAH ADA:** `PayoutResponse`, `PayoutDetailResponse`, `UpdatePayoutStatusRequest`, `AuditLogExportResponse` (DTO payout/export baru); `AdminEoApplicationResponse`, `AdminEoStatusRequest`, `AdminSettingsRequest`, `AdminDashboardMetricsResponse`, `AdminUserListItemResponse`, `AdminUserStatusRequest`. **TIDAK ADA dan JANGAN BUAT:** `EoApplication` entity, `Payout` entity, `AdminSettings` entity (pakai `Organizer` / `RefundRequestEntity` / `Settings` yang sudah ada).
+**SUDAH ADA:** `PayoutResponse`, `PayoutDetailResponse`, `UpdatePayoutStatusRequest`, `AuditLogExportResponse` (DTO payout/export baru); `AdminEoApplicationResponse`, `AdminEoStatusRequest`, `AdminSettingsRequest`, `AdminDashboardMetricsResponse`, `AdminUserListItemResponse`, `AdminUserStatusRequest`. **Phase 1 BARU:** `AdminEventRequest`, `AdminEventResponse`, `AdminEventListResponse`, `AdminEventStatusRequest`, `AdminEventSalesResponse`, `AdminTicketResponse`, `AdminTicketListResponse`, `AdminTicketGenerateRequest`, `AdminTransactionResponse`, `AdminTransactionListResponse`, `AdminTransactionStatusRequest`. **TIDAK ADA dan JANGAN BUAT:** `EoApplication` entity, `Payout` entity, `AdminSettings` entity (pakai `Organizer` / `RefundRequestEntity` / `Settings` yang sudah ada).
 
 | Item | Path | Status |
 |---|---|---|
