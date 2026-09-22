@@ -1,7 +1,7 @@
 package com.example.eventday.service.organizer;
 
-import com.example.eventday.entity.Event;
 import com.example.eventday.entity.Organizer;
+import com.example.eventday.entity.Event;
 import com.example.eventday.entity.TicketTier;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.OrderRepository;
@@ -10,6 +10,8 @@ import com.example.eventday.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -60,6 +62,19 @@ public class OrganizerEventService {
                 .collect(Collectors.toList());
     }
 
+    public Map<String, Object> getEventDetailById(UUID eventId) {
+        Organizer org = helperService.resolveCurrentOrganizer();
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
+
+        // Ownership Validation
+        if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
+        }
+
+        return mapEventToResponse(event);
+    }
+
     @Transactional
     public Map<String, Object> createEvent(Map<String, Object> payload, MultipartFile bannerFile) {
         Organizer org = helperService.resolveCurrentOrganizer();
@@ -78,20 +93,20 @@ public class OrganizerEventService {
                 : start.plusDays(1);
 
         Event event = Event.builder()
-                .organizer(org)
-                .title((String) payload.getOrDefault("title", "Untitled Event"))
-                .description((String) payload.get("description"))
-                .category((String) payload.getOrDefault("category", "Music"))
-                .venueName((String) payload.getOrDefault("venue_name", payload.getOrDefault("venueName", "TBA")))
-                .bannerUrl((String) payload.getOrDefault("banner_url", payload.get("bannerUrl")))
-                .facility((String) payload.get("facility"))
-                .lineup((String) payload.get("lineup"))
-                .startDate(start)
-                .endDate(end)
-                .status("DRAFT")
-                .isFeatured(false)
-                .createBy(currentUid)
-                .build();
+                 .organizer(org)
+                 .title((String) payload.getOrDefault("title", "Untitled Event"))
+                 .description((String) payload.get("description"))
+                 .category((String) payload.getOrDefault("category", "Music"))
+                 .venueName((String) payload.getOrDefault("venue_name", payload.getOrDefault("venueName", "TBA")))
+                 .bannerUrl((String) payload.getOrDefault("banner_url", payload.get("bannerUrl")))
+                 .facility(payload.get("facilities") != null ? String.join(", ", (List<String>) payload.get("facilities")) : "")
+                 .lineup((String) payload.get("lineup"))
+                 .startDate(start)
+                 .endDate(end)
+                 .status("DRAFT")
+                 .isFeatured(false)
+                 .createBy(currentUid)
+                 .build();
 
         Event saved = eventRepository.save(event);
 
@@ -263,8 +278,8 @@ public class OrganizerEventService {
         map.put("category", event.getCategory());
         map.put("venue_name", event.getVenueName());
         map.put("banner_url", event.getBannerUrl());
-        map.put("facility", event.getFacility());
-        map.put("lineup", event.getLineup());
+        map.put("facility", event.getFacility() != null ? event.getFacility() : "");
+        map.put("lineup", event.getLineup() != null ? event.getLineup() : "");
         map.put("start_date", event.getStartDate() != null ? event.getStartDate().toString() : null);
         map.put("end_date", event.getEndDate() != null ? event.getEndDate().toString() : null);
         map.put("status", event.getStatus());

@@ -25,4 +25,5 @@ public class PayoutResponse {
     private String adminNote;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String reconciliationDocumentUrl;
 }

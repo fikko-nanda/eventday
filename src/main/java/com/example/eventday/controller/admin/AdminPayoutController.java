@@ -10,6 +10,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -48,5 +52,15 @@ public class AdminPayoutController {
     public ApiResponse<PayoutDetailResponse> getReconciliationDocument(@PathVariable("id") UUID payoutId) {
         return ApiResponse.ok("Berhasil mengambil dokumen rekonsiliasi",
                 adminPayoutService.getReconciliationDocument(payoutId));
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> exportPayoutsCsv(
+            @RequestParam(value = "status", required = false) String statusFilter) {
+        byte[] csv = adminPayoutService.exportPayoutsCsv(statusFilter);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"payouts.csv\"")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(csv);
     }
 }

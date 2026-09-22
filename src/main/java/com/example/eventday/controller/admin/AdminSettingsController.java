@@ -39,6 +39,11 @@ public class AdminSettingsController {
         return ApiResponse.ok("Berhasil mengambil data audit logs untuk export", adminSettingsService.exportAuditLogs());
     }
 
+    @GetMapping("/audit-logs/export-json")
+    public ApiResponse<List<AuditLogExportResponse>> exportAuditLogsJson() {
+        return ApiResponse.ok("Berhasil mengambil data audit logs untuk export (JSON)", adminSettingsService.exportAuditLogs());
+    }
+
     @GetMapping("/audit-logs/export/csv")
     public ApiResponse<String> exportAuditLogsToCsv() {
         return ApiResponse.ok("Berhasil mengambil CSV data audit logs", adminSettingsService.exportAuditLogsToCsv());
@@ -52,12 +57,12 @@ public class AdminSettingsController {
         return ApiResponse.ok("Logo platform berhasil diunggah", Map.of("logoUrl", logoUrl));
     }
 
-    @GetMapping("/settings/general")
+    @GetMapping({"/settings/general", "/settings"})
     public ApiResponse<Map<String, String>> getGeneralSettings() {
         return ApiResponse.ok("Berhasil mengambil pengaturan sistem", adminSettingsService.getGeneralSettings());
     }
 
-    @PutMapping("/settings/general")
+    @PutMapping({"/settings/general", "/settings"})
     public ApiResponse<String> updateGeneralSettings(
             @Valid @RequestBody AdminSettingsRequest request,
             Authentication authentication) {

@@ -56,7 +56,7 @@ public class AdminTicketController {
                 adminTicketService.generateTickets(request.getOrderId(), getAdminId(authentication)));
     }
 
-    @PatchMapping("/{id}/revoke")
+    @PostMapping("/{id}/revoke")
     public ApiResponse<String> revokeTicket(
             @PathVariable("id") UUID ticketItemId,
             Authentication authentication) {
@@ -64,7 +64,7 @@ public class AdminTicketController {
         return ApiResponse.ok("Tiket berhasil di-revoke", null);
     }
 
-    @PatchMapping("/{id}/checkin")
+    @PostMapping("/{id}/checkin")
     public ApiResponse<String> checkInTicket(
             @PathVariable("id") UUID ticketItemId,
             Authentication authentication) {
@@ -72,8 +72,9 @@ public class AdminTicketController {
         return ApiResponse.ok("Tiket berhasil di-check-in", null);
     }
 
-    @GetMapping("/inventory/{eventId}")
-    public ApiResponse<Map<String, Object>> getEventTicketInventory(@PathVariable("eventId") UUID eventId) {
+    @GetMapping("/inventory")
+    public ApiResponse<Map<String, Object>> getEventTicketInventory(
+            @RequestParam(value = "eventId", required = true) UUID eventId) {
         return ApiResponse.ok("Berhasil mengambil inventaris tiket", adminTicketService.getEventTicketInventory(eventId));
     }
 
