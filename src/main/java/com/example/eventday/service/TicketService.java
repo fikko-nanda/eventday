@@ -1,6 +1,7 @@
 package com.example.eventday.service;
 
 import com.example.eventday.dto.TicketDetailResponse;
+import com.example.eventday.entity.Event;
 import com.example.eventday.entity.Order;
 import com.example.eventday.entity.TicketItem;
 import com.example.eventday.entity.TicketTier;
@@ -26,39 +27,45 @@ public class TicketService {
 
     @Transactional
     public List<TicketItem> generateTicketsForOrder(Order order) {
-        // Idempotency Check: Jika tiket sudah diterbitkan, langsung kembalikan tiket yang ada
+        if (order == null || order.getOrderId() == null) {
+            throw new IllegalArgumentException("Order dan Order ID tidak boleh kosong");
+        }
+
+        // Idempotency Check
         List<TicketItem> existingTickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
         if (existingTickets != null && !existingTickets.isEmpty()) {
             return existingTickets;
         }
 
-        String orderIdStr = order.getOrderId() != null ? order.getOrderId().toString() : "";
+        String orderIdStr = order.getOrderId().toString();
         List<Attendee> attendees = attendeeRepository.findByOrderId(orderIdStr);
         List<TicketItem> generatedTickets = new ArrayList<>();
+        TicketTier tier = order.getTicketTier();
 
         if (attendees != null && !attendees.isEmpty()) {
             for (Attendee attendee : attendees) {
                 TicketItem ticket = generateTicket(
                         order,
-                        order.getTicketTier(),
+                        tier,
                         attendee.getFullName(),
                         attendee.getEmail(),
-                        attendee.getIdentityNumber()
-                );
+                        attendee.getIdentityNumber());
                 generatedTickets.add(ticket);
             }
         } else {
             String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
-                    ? order.getCustomer().getEmail() : "";
+                    ? order.getCustomer().getEmail()
+                    : "";
 
-            for (int i = 0; i < order.getQuantity(); i++) {
+            int qty = order.getQuantity() != null ? order.getQuantity() : 1;
+
+            for (int i = 0; i < qty; i++) {
                 TicketItem ticket = generateTicket(
                         order,
-                        order.getTicketTier(),
+                        tier,
                         "Pemegang Tiket " + (i + 1),
                         email,
-                        null
-                );
+                        null);
                 generatedTickets.add(ticket);
             }
         }
@@ -66,7 +73,8 @@ public class TicketService {
     }
 
     @Transactional
-    public TicketItem generateTicket(Order order, TicketTier tier, String attendeeName, String attendeeEmail, String attendeeNik) {
+    public TicketItem generateTicket(Order order, TicketTier tier, String attendeeName, String attendeeEmail,
+            String attendeeNik) {
         TicketItem ticketItem = TicketItem.builder()
                 .order(order)
                 .tier(tier)
@@ -80,8 +88,22 @@ public class TicketService {
         return ticketItemRepository.save(ticketItem);
     }
 
+    @Transactional(readOnly = true)
     public List<TicketItem> getTicketsByEmail(String email) {
-        return ticketItemRepository.findByOrderCustomerEmailOrderByCreatedAtDesc(email);
+        if (email == null || email.isBlank()) {
+            return List.of();
+        }
+        List<TicketItem> tickets = ticketItemRepository
+                .findByAttendeeEmailIgnoreCaseOrOrderCustomerEmailIgnoreCaseOrderByCreatedAtDesc(email, email);
+
+        if (tickets != null) {
+            tickets.forEach(ticket -> {
+                if (ticket.getTier() != null && ticket.getTier().getEvent() != null) {
+                    ticket.getTier().getEvent().getTitle();
+                }
+            });
+        }
+        return tickets != null ? tickets : List.of();
     }
 
     @Transactional(readOnly = true)
@@ -99,17 +121,25 @@ public class TicketService {
         Order order = ticket.getOrder();
         TicketTier tier = ticket.getTier();
 
+        String eventId = null;
+        String eventImageUrl = null;
         String eventTitle = null;
         LocalDateTime eventDate = null;
         String venueName = null;
         String categoryName = null;
+        String customerEmail = (order != null && order.getCustomer() != null) ? order.getCustomer().getEmail() : null;
 
         if (tier != null) {
             categoryName = tier.getTierName();
-            if (tier.getEvent() != null) {
-                eventTitle = tier.getEvent().getTitle();
-                eventDate = tier.getEvent().getStartDate();
-                venueName = tier.getEvent().getVenueName();
+            Event event = tier.getEvent();
+            if (event != null) {
+                if (event.getEventId() != null) {
+                    eventId = event.getEventId().toString();
+                }
+                eventImageUrl = event.getBannerUrl(); // Menggunakan getBannerUrl() dari Event.java
+                eventTitle = event.getTitle();
+                eventDate = event.getStartDate();
+                venueName = event.getVenueName();
             }
         }
 
@@ -117,12 +147,15 @@ public class TicketService {
                 .ticketId(ticket.getTicketItemId().toString())
                 .ticketCode(ticket.getTicketItemId().toString())
                 .orderId(order != null && order.getOrderId() != null ? order.getOrderId().toString() : null)
+                .eventId(eventId)
+                .eventImageUrl(eventImageUrl)
                 .eventTitle(eventTitle)
                 .eventDate(eventDate)
                 .venueName(venueName)
                 .categoryName(categoryName)
                 .attendeeName(ticket.getAttendeeName())
                 .attendeeEmail(ticket.getAttendeeEmail())
+                .customerEmail(customerEmail)
                 .attendeeIdentityNumber(ticket.getAttendeeNik())
                 .status(ticket.getCheckInStatus())
                 .issuedAt(ticket.getCreatedAt() != null ? ticket.getCreatedAt() : LocalDateTime.now())

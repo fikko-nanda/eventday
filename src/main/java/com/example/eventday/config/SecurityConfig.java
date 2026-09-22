@@ -35,7 +35,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         ObjectMapper om = new ObjectMapper();
-        
+
         http
             .cors(Customizer.withDefaults())
             .csrf(csrf -> csrf.disable())
@@ -55,33 +55,34 @@ public class SecurityConfig {
                 })
             )
             .authorizeHttpRequests(auth -> auth
-                // Public root & static resources (termasuk folder upload gambar/dokumen)
-                .requestMatchers("/", "/error", "/favicon.ico", "/uploads/**").permitAll()
+                // Public root & static resources
+                .requestMatchers("/", "/error", "/favicon.ico").permitAll()
 
-                // Modul Auth (Mendukung /api/auth/** dan /api/v1/auth/**)
-                .requestMatchers("/api/auth/**", "/api/v1/auth/**").permitAll()
+                        // Modul Auth (Mendukung /api/auth/** dan /api/v1/auth/**)
+                        .requestMatchers("/api/auth/**", "/api/v1/auth/**").permitAll()
 
-                // Modul Home, Search & Legal (Publik)
-                .requestMatchers("/api/home/**").permitAll()
-                .requestMatchers("/api/search/**").permitAll()
-                .requestMatchers("/terms-conditions", "/privacy-policy", "/api/terms-conditions", "/api/privacy-policy").permitAll()
+                        // Modul Home, Search & Legal (Publik)
+                        .requestMatchers("/api/home/**", "/api/v1/home/**").permitAll()
+                        .requestMatchers("/api/search/**", "/api/v1/search/**").permitAll()
+                        .requestMatchers("/terms-conditions", "/privacy-policy", "/api/terms-conditions",
+                                "/api/privacy-policy")
+                        .permitAll()
 
-                // Modul Events (Hanya GET yang publik, POST/PUT/DELETE butuh login)
-                .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()
+                        // Modul Events (Hanya GET yang publik)
+                        .requestMatchers(HttpMethod.GET, "/api/events/**", "/api/v1/events/**").permitAll()
 
-                // Webhook Midtrans (Publik)
-                .requestMatchers("/api/payments/midtrans-notification", "/api/v1/payments/midtrans-notification").permitAll()
+                        // Webhook & Charge Midtrans (Publik tanpa butuh token JWT)
+                        .requestMatchers("/api/payments/midtrans-notification", "/api/v1/payments/**").permitAll()
 
-                // Endpoint Scan Tiket (Dibatasi untuk Admin/Organizer saja)
-                .requestMatchers("/api/tickets/scan", "/api/v1/tickets/scan").hasAnyRole("ADMIN", "ORGANIZER")
+                        // Endpoint Scan Tiket (Admin / Organizer)
+                        .requestMatchers("/api/tickets/scan", "/api/v1/tickets/scan").hasAnyRole("ADMIN", "ORGANIZER")
 
-                // Modul Admin
-                .requestMatchers("/admin/**", "/api/admin/**").hasRole("ADMIN")
+                        // Modul Admin
+                        .requestMatchers("/admin/**", "/api/admin/**", "/api/v1/admin/**").hasRole("ADMIN")
 
-                // Sisanya wajib Authenticated
-                .anyRequest().authenticated()
-            )
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                        // Sisanya wajib Authenticated
+                        .anyRequest().authenticated())
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

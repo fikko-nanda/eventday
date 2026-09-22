@@ -2,49 +2,69 @@ package com.example.eventday.controller;
 
 import com.example.eventday.dto.ApiResponse;
 import com.example.eventday.dto.TicketDetailResponse;
+import com.example.eventday.entity.TicketItem;
 import com.example.eventday.service.TicketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/tickets")
+@RequestMapping({ "/api/tickets", "/api/v1/tickets" })
 @RequiredArgsConstructor
 public class TicketController {
 
     private final TicketService ticketService;
 
-    // Ambil daftar tiket murni berbasis email dari JWT Auth
+    // Menerima parameter userEmail opsional dari query request, fallback ke token
+    // Authentication
     @GetMapping("/my-tickets")
-    public ResponseEntity<ApiResponse<List<?>>> getMyTickets(Authentication authentication) {
-        if (authentication == null || authentication.getName() == null) {
+    public ResponseEntity<ApiResponse<List<TicketItem>>> getMyTickets(
+            @RequestParam(value = "userEmail", required = false) String userEmail,
+            Authentication authentication) {
+
+        String targetEmail = resolveUserEmail(userEmail, authentication);
+
+        if (targetEmail == null || targetEmail.isBlank()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.badRequest("Pengguna tidak terautentikasi"));
+                    .body(ApiResponse.badRequest("Pengguna tidak terautentikasi atau email tidak ditemukan"));
         }
-        String currentEmail = authentication.getName();
-        return ResponseEntity.ok(ApiResponse.success("Daftar tiket user", ticketService.getTicketsByEmail(currentEmail)));
+
+        List<TicketItem> tickets = ticketService.getTicketsByEmail(targetEmail);
+        return ResponseEntity.ok(ApiResponse.success("Daftar tiket user", tickets));
     }
 
     // Anti-IDOR: Validasi pemilik tiket atau role Panitia/Admin
     @GetMapping("/issued-detail")
     public ResponseEntity<ApiResponse<TicketDetailResponse>> getIssuedDetail(
             @RequestParam String ticketCode,
+            @RequestParam(value = "userEmail", required = false) String userEmail,
             Authentication authentication) {
         try {
             TicketDetailResponse detail = ticketService.getIssuedDetail(ticketCode);
 
-            // Cek apakah user yang login adalah pemilik tiket atau panitia
-            if (authentication != null && authentication.getName() != null) {
-                String currentUserEmail = authentication.getName();
-                boolean isOwner = currentUserEmail.equalsIgnoreCase(detail.getAttendeeEmail());
-                boolean isStaff = authentication.getAuthorities().stream()
-                        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_ORGANIZER"));
+            String currentUser = resolveUserEmail(userEmail, authentication);
+
+            if (currentUser != null && !currentUser.isBlank()) {
+
+                // Pengecekan pemilik tiket: cocokkan dengan email peserta atau email pembeli
+                boolean isOwner = currentUser.equalsIgnoreCase(detail.getAttendeeEmail())
+                        || (detail.getCustomerEmail() != null
+                                && currentUser.equalsIgnoreCase(detail.getCustomerEmail()));
+
+                // Pengecekan role Staff / Admin (akomodasi format 'ROLE_ADMIN' maupun 'ADMIN')
+                boolean isStaff = authentication != null && authentication.getAuthorities() != null
+                        && authentication.getAuthorities().stream()
+                                .anyMatch(a -> a.getAuthority().equalsIgnoreCase("ROLE_ADMIN")
+                                        || a.getAuthority().equalsIgnoreCase("ROLE_ORGANIZER")
+                                        || a.getAuthority().equalsIgnoreCase("ADMIN")
+                                        || a.getAuthority().equalsIgnoreCase("ORGANIZER"));
 
                 if (!isOwner && !isStaff) {
                     return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -58,7 +78,7 @@ public class TicketController {
         }
     }
 
-    // Hanya ROLE_ADMIN atau ROLE_ORGANIZER yang bisa me-scan tiket di venue
+    // Scan tiket di venue
     @PostMapping("/scan")
     @PreAuthorize("hasAnyRole('ADMIN', 'ORGANIZER')")
     public ResponseEntity<ApiResponse<Map<String, String>>> scanTicket(@RequestBody Map<String, String> payload) {
@@ -68,9 +88,32 @@ public class TicketController {
         }
         try {
             String result = ticketService.validateAndUseTicket(ticketCode);
-            return ResponseEntity.ok(ApiResponse.success("Proses scan selesai", Map.of("status", result, "message", "Proses scan selesai")));
+            return ResponseEntity.ok(ApiResponse.success("Proses scan selesai",
+                    Map.of("status", result, "message", "Proses scan selesai")));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage()));
         }
+    }
+
+    /**
+     * Helper method standar Spring Security untuk mengambil identitas
+     * pengguna/email
+     */
+    private String resolveUserEmail(String paramEmail, Authentication authentication) {
+        if (paramEmail != null && !paramEmail.isBlank()) {
+            return paramEmail;
+        }
+
+        if (authentication != null) {
+            Object principal = authentication.getPrincipal();
+
+            if (principal instanceof UserDetails userDetails) {
+                return userDetails.getUsername();
+            }
+
+            return authentication.getName();
+        }
+
+        return null;
     }
 }
