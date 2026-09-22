@@ -56,7 +56,7 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 // Public root & static resources
-                .requestMatchers("/", "/error", "/favicon.ico").permitAll()
+                .requestMatchers("/", "/error", "/favicon.ico", "/uploads/**").permitAll()
 
                         // Modul Auth (Mendukung /api/auth/** dan /api/v1/auth/**)
                         .requestMatchers("/api/auth/**", "/api/v1/auth/**").permitAll()

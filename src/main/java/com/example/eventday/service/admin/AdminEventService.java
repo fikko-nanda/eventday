@@ -5,11 +5,13 @@ import com.example.eventday.dto.admin.*;
 import com.example.eventday.entity.*;
 import com.example.eventday.repository.*;
 import com.example.eventday.service.AuditLogService;
+import com.example.eventday.service.FileStorageService;
 import com.example.eventday.util.CsvUtil;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -32,6 +34,7 @@ public class AdminEventService {
     private final OrderRepository orderRepository;
     private final OrganizerRepository organizerRepository;
     private final AuditLogService auditLogService;
+    private final FileStorageService fileStorageService;
 
     @Transactional(readOnly = true)
     public Page<AdminEventListResponse> getEvents(String status, String category, UUID organizerId,
@@ -51,7 +54,11 @@ public class AdminEventService {
     }
 
     @Transactional
-    public AdminEventResponse createEvent(CreateEventRequest request, UUID adminId) {
+    public AdminEventResponse createEvent(CreateEventRequest request, MultipartFile bannerFile, UUID adminId) {
+        if (bannerFile != null && !bannerFile.isEmpty()) {
+            request.setBannerUrl(fileStorageService.saveImage(bannerFile, "event-banners"));
+        }
+
         Organizer organizer = findDefaultOrganizer();
 
         Event event = Event.builder()
@@ -64,14 +71,14 @@ public class AdminEventService {
                 .facility(request.getFacilities() != null ? String.join(", ", request.getFacilities()) : null)
                 .startDate(request.getEventDate() != null ? request.getEventDate() : LocalDateTime.now().plusDays(7))
                 .endDate(request.getEventDate() != null ? request.getEventDate().plusHours(8) : LocalDateTime.now().plusDays(7).plusHours(8))
-                .status("DRAFT")
+                .status("PUBLISHED")
                 .isFeatured(false)
                 .createBy(adminId)
                 .build();
 
         Event savedEvent = eventRepository.save(event);
 
-        if (request.getTicketTiers() != null) {
+        if (request.getTicketTiers() != null && !request.getTicketTiers().isEmpty()) {
             for (CreateEventRequest.TicketTierDto tierDto : request.getTicketTiers()) {
                 TicketTier tier = TicketTier.builder()
                         .event(savedEvent)
@@ -86,15 +93,19 @@ public class AdminEventService {
         }
 
         auditLogService.log(adminId, "ADMIN", "CREATE_EVENT",
-                "Membuat event: " + savedEvent.getTitle() + " (" + savedEvent.getEventId() + ")");
+                "Membuat event: " + savedEvent.getTitle() + " (" + savedEvent.getEventId() + ") - Status: PUBLISHED");
 
         return mapToDetailResponse(savedEvent);
     }
 
     @Transactional
-    public AdminEventResponse updateEvent(UUID eventId, CreateEventRequest request, UUID adminId) {
+    public AdminEventResponse updateEvent(UUID eventId, CreateEventRequest request, MultipartFile bannerFile, UUID adminId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+
+        if (bannerFile != null && !bannerFile.isEmpty()) {
+            request.setBannerUrl(fileStorageService.saveImage(bannerFile, "event-banners"));
+        }
 
         event.setTitle(request.getTitle());
         event.setDescription(request.getDescription());
@@ -123,9 +134,16 @@ public class AdminEventService {
                 .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
 
         String statusUpper = newStatus.toUpperCase();
+
+        // No-op jika status sudah sama
+        if (statusUpper.equals(event.getStatus())) {
+            return;
+        }
+
         validateStatusTransition(event.getStatus(), statusUpper);
 
-        if ("PUBLISHED".equals(statusUpper)) {
+        // Hanya periksa tier saat approve dari PENDING_APPROVAL → PUBLISHED
+        if ("PUBLISHED".equals(statusUpper) && "PENDING_APPROVAL".equals(event.getStatus())) {
             List<TicketTier> tiers = ticketTierRepository.findByEvent(event);
             if (tiers.isEmpty()) {
                 throw new IllegalStateException("Event harus memiliki minimal 1 ticket tier untuk dipublikasikan");
@@ -142,6 +160,25 @@ public class AdminEventService {
     }
 
     @Transactional
+    public void publishEvent(UUID eventId, UUID adminId) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+
+        if ("PUBLISHED".equals(event.getStatus())) {
+            return; // Sudah publish, no-op
+        }
+
+        // DRAFT / PENDING_APPROVAL → PUBLISHED langsung tanpa check tier
+        event.setStatus("PUBLISHED");
+        event.setUpdatedAt(LocalDateTime.now());
+        event.setUpdatedBy(adminId);
+        eventRepository.save(event);
+
+        auditLogService.log(adminId, "ADMIN", "PUBLISH_EVENT",
+                "Event " + event.getTitle() + " dipublikasikan langsung (admin)");
+    }
+
+    @Transactional
     public void deleteEvent(UUID eventId, UUID adminId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
@@ -153,6 +190,48 @@ public class AdminEventService {
 
         auditLogService.log(adminId, "ADMIN", "DELETE_EVENT",
                 "Menghapus event: " + event.getTitle() + " (" + event.getEventId() + ")");
+    }
+
+    @Transactional
+    public void approveEOEvent(UUID eventId, UUID adminId) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+
+        if (!"PENDING_APPROVAL".equals(event.getStatus())) {
+            throw new IllegalStateException("Event tidak dalam status menunggu persetujuan (status saat ini: " + event.getStatus() + ")");
+        }
+
+        List<TicketTier> tiers = ticketTierRepository.findByEvent(event);
+        if (tiers.isEmpty()) {
+            throw new IllegalStateException("Event harus memiliki minimal 1 ticket tier untuk disetujui");
+        }
+
+        event.setStatus("PUBLISHED");
+        event.setUpdatedAt(LocalDateTime.now());
+        event.setUpdatedBy(adminId);
+        eventRepository.save(event);
+
+        auditLogService.log(adminId, "ADMIN", "APPROVE_EO_EVENT",
+                "Menyetujui event EO: " + event.getTitle() + " (" + event.getEventId() + ")");
+    }
+
+    @Transactional
+    public void rejectEOEvent(UUID eventId, String rejectionReason, UUID adminId) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+
+        if (!"PENDING_APPROVAL".equals(event.getStatus())) {
+            throw new IllegalStateException("Event tidak dalam status menunggu persetujuan (status saat ini: " + event.getStatus() + ")");
+        }
+
+        event.setStatus("REJECTED");
+        event.setUpdatedAt(LocalDateTime.now());
+        event.setUpdatedBy(adminId);
+        eventRepository.save(event);
+
+        String reason = (rejectionReason != null && !rejectionReason.isBlank()) ? rejectionReason : "Tidak disebutkan";
+        auditLogService.log(adminId, "ADMIN", "REJECT_EO_EVENT",
+                "Menolak event EO: " + event.getTitle() + " (" + event.getEventId() + ") - Alasan: " + reason);
     }
 
     @Transactional(readOnly = true)
@@ -279,7 +358,9 @@ public class AdminEventService {
     private void validateStatusTransition(String current, String next) {
         Set<String> valid = switch (current) {
             case "DRAFT" -> Set.of("PUBLISHED", "CANCELLED", "DELETED");
+            case "PENDING_APPROVAL" -> Set.of("PUBLISHED", "REJECTED", "DRAFT", "CANCELLED", "DELETED");
             case "PUBLISHED" -> Set.of("DRAFT", "CANCELLED", "COMPLETED", "DELETED");
+            case "REJECTED" -> Set.of("DRAFT", "DELETED");
             case "CANCELLED" -> Set.of("DELETED");
             case "DELETED" -> Set.of();
             default -> Set.of("DRAFT", "PUBLISHED", "CANCELLED", "DELETED");

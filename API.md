@@ -5,7 +5,8 @@ Base URL (ngrok lintas-laptop): `https://<id-baru>.ngrok-free.app` → `ngrok ht
 
 > **Status 2026-09-14 (rev.8):** PR #12 (HEAD `0405d44`) **lengkapi Ticket** — `GET /api/tickets/user/{email}` alias `GET /api/tickets/my-tickets?userEmail=` (dua-duanya list `TicketItem`), **baru** `GET /api/tickets/issued-detail?ticketCode=<UUID>` (payload E-Ticket → `TicketDetailResponse`), `POST /api/tickets/scan` (sama). Modul aktif: Auth + Event Catalog + Home & Search (publik) + Checkout (8) + Payment + Ticket (4) + User/Profile.
 > **Status 2026-09-16 (rev.13):** Tim merge PR #23 (refund), #24 (organizer-db-integration), #25 (legal) → HEAD `6e7bcfd`. Perubahan besar: ① Legal BUG **FIXED** — dual alias + permitAll 4 path, verified live `200` tanpa token (server di-restart, build lama yang bikin "masih bug"); ② **BREAKING**: `RefundController` `/api`→`/api/v1`, `OrganizerController` `/organizer`→`/api/organizer` (path lama → `500`); ③ Endpoint baru: `POST /api/events/create` (MOCK, **publik**), 9 stub organizer (`events`×6 + `dashboard`×3); ④ `order-summary` kini REAL (hitung dari order), `submitRefund` isi `organizerId` selalu (fallback = customerId), banks 8 bank + logo; ⑤ avatar user kini REAL (validasi image/5MB, tersimpan, diserve `WebConfig /uploads/**`); ⑥ `midtrans-notification` kini **publik**; ⑦ `LegalService` konten kaya (slug/version/sections). Total **98 path unik: 79 REAL, 17 MOCK, 2 PARTIAL, 0 BUG**.
-> **Last Updated:** 2026-09-16 — sinkron PR #23-25 + restart server + verifikasi live, DB `localhost:5432/eventday`.
+> **Status 2026-09-21 (rev.14, HEAD `4680644` + uncommitted):** PR #35-38 (#36 dashboard EO persist, #37 modular folder, #38 fixticket) + #40 (split dashboard + banner upload + domain architecture), #41 (fix payment/refund/user service), #42 (organizer modular event+tickets persist + public uploads), #43 (fitur login) → HEAD `4680644`. Perubahan besar vs rev.13: ① **Webhook Midtrans REAL** — `PaymentController` verifikasi signature SHA-512, order → `PAID` + auto `generateTicketsForOrder` + email konfirmasi; `cancel/deny/expire` → `CANCELLED`/`EXPIRED` + **kuota kembali**; ② **Kuota tiket DIKURANGI saat `checkout/initiate`** (anti-overselling) + dikembalikan saat EXPIRED/CANCELLED (`OrderService.handleExpiredOrCancelledOrder`); ③ **Organizer events & dashboard kini REAL DB** (bukan 9 stub): create/update **multipart** + persist `ticket_tiers`, publish → `PENDING_APPROVAL`, `POST /api/organizer/events/banner`; `OrganizerController` dipecah jadi 6 controller (30 mapping) dengan subfolder `controller/organizer/` + `service/organizer/`; ④ **Admin create/update event kini multipart** (`@RequestPart("event")` + `file` opsional) + endpoint baru `PATCH /{id}/approve` + `PATCH /{id}/reject` (approve event EO); ⑤ **Ticket API dirombak**: `GET /api/tickets/user/{email}` **DIHAPUS**, `GET /my-tickets` berbasis auth, `POST /scan` kini wajib role `ADMIN`/`ORGANIZER` (CUSTOMER kena 403), `issued-detail` ada cek kepemilikan (anti-IDOR); ⑥ **`SecurityConfig`**: hanya `GET /api/events/**` yang publik (POST/PUT/DELETE butuh login → `POST /api/events/create` MOCK tidak lagi publik), `GET /uploads/**` permitAll, alias `/api/v1/payments/**`; ⑦ `GET /admin/eo-applications/{id}/documents/company-deed/download` BARU; ⑧ `AdminTicketService` status `checkIn` toggle **`CHECKED_IN`/`REVOKED`** (bukan `USED`/`CANCELLED`); ⑨ `FileStorageService` BARU (upload PNG/JPG/JPEG/WEBP/GIF ≤5MB → `uploads/<subfolder>`). Kredensial Mailtrap berubah (`e96525986aca4d`/`4d5de06079a796`). ⚠️ Perubahan uncommitted: `AdminEventController/Service` + `OrganizerEventController/Service` + `FileStorageService` (belum di-commit).
+> **Last Updated:** 2026-09-21 — sinkron PR #35-43 + uncommitted multipart, DB `localhost:5432/eventday`.
 > **ngrok:** URL `9538-2400-...ngrok-free.app` di screenshot sudah expired. Jalankan `ngrok http 8082` di laptop backend, copy URL baru, ganti `BASE` di frontend. `localhost:8082` hanya untuk 1 laptop.
 > **Response Standard:** Semua API pakai `ApiResponse.java` `{msg, status, data}` `@JsonInclude ALWAYS` — helper `created(201)/ok(200)/badRequest(400)/unauthorized(401)/forbidden(403)/notFound(404)/internalError(500)`. `SecurityConfig.java` + `GlobalExceptionHandler.java` juga pakai `ApiResponse`.
 
@@ -37,7 +38,7 @@ Alias legacy `POST /api/auth/**` juga permit.
 > **⚠️ Troubleshooting 401 vs CORS (kasus screenshot `/register` → 401):**
 > Network `register` → `401 Unauthorized` + `Access-Control-Allow-Origin: http://localhost:5173` + `Access-Control-Allow-Credentials: true` = **CORS sudah benar** (`CorsConfig.java:14` `CorsFilter` bean + `SecurityConfig.java:38` `.cors(cors->{})`). 401 terjadi karena frontend nembak `https://xxx.ngrok-free.app/register` (tanpa prefix), sedangkan `SecurityConfig.java:55` hanya `permitAll` untuk `/api/auth/**` dan `/api/auth/**`. Fix: `BASE` harus `https://xxx.ngrok-free.app/api/auth` sehingga request jadi `POST /api/auth/register` → `201`. Jangan pakai `BASE` tanpa suffix `/api/auth`.
 
-## Daftar Endpoint Customer (Publik — lihat catatan SecurityConfig)
+## Daftar Endpoint Customer (Publik — hanya **GET** `/api/events/**` sejak rev.14)
 
 | # | Method | Endpoint | Deskripsi | HTTP |
 |---|--------|----------|-----------|------|
@@ -45,7 +46,7 @@ Alias legacy `POST /api/auth/**` juga permit.
 | 8 | GET | `/api/events/featured` | Event unggulan untuk hero slider (max 3) | `200` |
 | 9 | GET | `/api/events/{id}` | Detail event + lineup + tiket | `200` / `404` |
 
-> \*SUDAH COMMITTED di HEAD: `SecurityConfig.java:67` `/api/events/**` permitAll — akses publik tanpa Bearer, bisa dibuka via browser/curl. Legal juga publik 4 path (FIXED rev.13, verified live `200`).
+> \*`SecurityConfig.java:70` kini permit **hanya `GET /api/events/**`** (rev.14) — akses publik tanpa Bearer untuk membaca katalog. POST/PUT/DELETE event (mis. `POST /api/events/create` stub) butuh login → `401` tanpa token. Legal publik 4 path (FIXED rev.13, verified live `200`). `GET /uploads/**` permitAll (file statis).
 
 ## Daftar Endpoint Home & Search (Public — tanpa JWT)
 
@@ -77,8 +78,8 @@ Alias legacy `POST /api/auth/**` juga permit.
 
 | # | Method | Endpoint | Deskripsi | HTTP |
 |---|--------|----------|-----------|------|
-| 24 | POST | `/api/payments/charge` | `{orderId, grossAmount, customerName, customerEmail}` → Midtrans Snap → `{snapToken, redirectUrl}` | `200` |
-| 25 | POST | `/api/payments/midtrans-notification` | Webhook Midtrans (log only, belum update order) | `200` |
+| 24 | POST | `/api/payments/charge` | `{orderId, grossAmount, customerName, customerEmail}` (alias snake_case `order_id`/`customer_name`) → Midtrans Snap → `{snapToken, redirectUrl}` | `200`/`400` |
+| 25 | POST | `/api/payments/midtrans-notification` (+ alias `/api/v1/payments/...`) | Webhook Midtrans **REAL (rev.14)** — verifikasi signature SHA-512, PAID → auto generate tiket + email; cancel/deny/expire → CANCELLED/EXPIRED + restore kuota | `200`/`401` |
 
 > ⚠️ `GET /payments/methods` dan `GET /payments/methods/virtual-account` sudah **DIHAPUS** dari kode.
 
@@ -86,10 +87,11 @@ Alias legacy `POST /api/auth/**` juga permit.
 
 | # | Method | Endpoint | Deskripsi | HTTP |
 |---|--------|----------|-----------|------|
-| 27 | GET | `/api/tickets/user/{email}` | List tiket milik user (kosong sampai tiket diterbitkan) | `200` |
-| 28 | GET | `/api/tickets/my-tickets?userEmail=` | Alias #27 (PR #12) — email via query param | `200` |
-| 29 | GET | `/api/tickets/issued-detail?ticketCode=` | Detail E-Ticket (PR #12) — `TicketDetailResponse` | `200`/`400` |
-| 30 | POST | `/api/tickets/scan` | Scan QR `{ticketCode: "<UUID>"}` → `TIKET_VALID`/`TIKET_SUDAH_DIPAKAI` | `200`/`400` |
+| 27 | GET | `/api/tickets/my-tickets` | My Tickets (rev.14) — **auth-based** dari `authentication.getName()`, hasil `List<TicketItem>` | `200` |
+| 28 | GET | `/api/tickets/issued-detail?ticketCode=` | Detail E-Ticket — `TicketDetailResponse`, cek kepemilikan (anti-IDOR: owner / ADMIN / ORGANIZER) | `200`/`400`/`403` |
+| 29 | POST | `/api/tickets/scan` | Scan QR `{ticketCode: "<UUID>"}` → `TIKET_VALID`/`TIKET_SUDAH_DIPAKAI` — **wajib role ADMIN/ORGANIZER** | `200`/`400`/`403` |
+
+> 🔴 **Rev.14:** `GET /api/tickets/user/{email}` **DIHAPUS** (tak ada lagi di `TicketController`). `GET /my-tickets` tidak lagi pakai query `userEmail=` — identitas diambil dari session (`authentication.getName()`). Lihat catatan §14 untuk peringatan `getName()` = userId (UUID), bukan email.
 
 ## Daftar Endpoint User/Profile & Logout (perlu login — PR #11)
 
@@ -361,11 +363,11 @@ curl -X POST localhost:8082/api/auth/reset-password -H "Content-Type: applicatio
 
 ## 7. Middleware JWT & Protected Routes
 
-Publik (tanpa JWT): `/api/auth/**`, `/api/home/**`, `/api/search/**`, `/api/events/**`, `/`, `/error` — **SUDAH di-commit** di `SecurityConfig.java:55-73`. Sisanya (Checkout, Payment, Ticket, dst) butuh JWT. `SecurityConfig.java:40` `STATELESS`.
+Publik (tanpa JWT) per `SecurityConfig` (rev.14): `/`, `/error`, `/favicon.ico`, `/uploads/**`, `/api/auth/**`, `/api/v1/auth/**` (perm saja — controller tetap `/api/auth`), `/api/home/**`, `/api/search/**`, 4 path legal (`/terms-conditions` + `/privacy-policy` + alias `/api/...`), **`GET /api/events/**`** (hanya GET — POST/PUT/DELETE event butuh login), dan `POST /api/payments/midtrans-notification` + alias `/api/v1/payments/midtrans-notification`. `/api/admin/**` + `/admin/**` → `hasRole("ADMIN")`; `/api/tickets/scan` → `hasAnyRole("ADMIN","ORGANIZER")`. Sisanya (Checkout, Payment, Ticket, dst) `anyRequest.authenticated()`. `SecurityConfig.java:40` `STATELESS`.
 
 > ✅ **Legal FIXED (rev.13, PR #25):** `LegalController` dual alias (`/terms-conditions` + `/api/terms-conditions`, sama untuk privacy-policy) + `SecurityConfig:70` permit keempat path → **publik tanpa token** (verified live `200`). Isu BUG rev.11/12 sudah tutup.
 
-`JwtAuthenticationFilter.java:36`: `Authorization: Bearer <token>` **atau** `Cookie: access_token` (`resolveToken()`) → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`.
+`JwtAuthenticationFilter.java:36`: `Authorization: Bearer <token>` **atau** `Cookie: access_token` (`resolveToken()`) → `validate` → `getUserId/role` → cek `auth.status ACTIVE` (⚠️ rev.14: cek `aksesToken==token` **di-comment out** — hanya status ACTIVE yang dicek) → `SecurityContext ROLE_*` → `anyRequest.authenticated()`.
 
 `SecurityConfig.java` kini return standard `msg/status/data` untuk `401/403`:
 
@@ -599,7 +601,7 @@ curl "localhost:8082/api/search/categories"
 ## 12. Checkout & Order (perlu login)
 
 ### POST `/api/checkout/initiate` — body `{tierId, quantity}`
-`OrderService.createOrder`: cek `availableQuota` (tidak dikurangi!) → `subtotal = price×qty`, `total = subtotal + adminFee(5000)` → save `Order(PENDING, expiredAt +15mnt)`. Return entity `Order` langsung.
+`OrderService.createOrder` (rev.14): cek kuota → **`availableQuota` DIKURANGI** (`qty` — anti-overselling, `PERBAIKAN 1` di commit) → `subtotal = price×qty`, `total = subtotal + adminFee(5000)` → save `Order(PENDING, expiredAt +15mnt)`. Return entity `Order` langsung. ⚠️ Jika kemudian order EXPIRED/CANCELLED, kuota dikembalikan via `OrderService.handleExpiredOrCancelledOrder` (auto di webhook Midtrans / admin transaction status).
 ```bash
 curl -b cookies.txt -X POST localhost:8082/api/checkout/initiate -H "Content-Type: application/json" -d '{"tierId":"<tier-uuid>","quantity":2}'
 ```
@@ -632,48 +634,57 @@ Body `{orderId}` → status order jadi `WAITING_PAYMENT` (TIDAK cek `PENDING` du
 
 ## 13. Payment — Midtrans Snap (perlu login, REAL gateway sandbox)
 
+Juga tersedia via alias `/api/v1/payments/**` (permit di `SecurityConfig`).
+
 ```bash
-# Midtrans Snap — return snapToken:
+# Midtrans Snap — return snapToken (body bisa camelCase atau snake_case):
 curl -b cookies.txt -X POST localhost:8082/api/payments/charge \
   -H "Content-Type: application/json" \
   -d '{"orderId":"<order-uuid>","grossAmount":300000,"customerName":"Budi","customerEmail":"budi@mail.com"}'
 # → {"status":200,"data":{"snapToken":"Mid-trans...","redirectUrl":"https://app.sandbox.midtrans.com/snap/v2/vtweb/..."}}
+# orderId null → {"msg":"orderId wajib diisi","status":400,"data":null}
 
-# Webhook dari Midtrans (otomatis, bukan manual):
+# Webhook dari Midtrans (otomatis, bukan manual) — kini REAL memproses transaksi:
 curl -X POST localhost:8082/api/payments/midtrans-notification \
   -H "Content-Type: application/json" \
   -d '{"order_id":"...","transaction_status":"settlement","va_number":"..."}'
 ```
-- Config (`application.properties:63-66`): `midtrans.server-key=SB-Mid-server-...`, `midtrans.snap-url=https://app.sandbox.midtrans.com/snap/v1/transactions`.
-- Frontend redirect ke `redirectUrl` untuk bayar, lalu Midtrans webhook `/api/payments/midtrans-notification` (log only, belum update order status).
+- Config (`application.properties`): `midtrans.server-key=SB-Mid-server-...` (dipakai verifikasi signature SHA-512), `midtrans.client-key=SB-Mid-client-...`, `midtrans.snap-url=https://app.sandbox.midtrans.com/snap/v1/transactions`.
+- Frontend redirect ke `redirectUrl` untuk bayar, lalu Midtrans webhook `/api/payments/midtrans-notification` — body `{order_id|orderId, transaction_status, ...}` + header `X-Signature` (SHA-512 dari `order_id+status_code+gross_amount+server_key`):
+  - `capture`/`settlement` + `accept` → order **`PAID`** + otomatis **generate semua tiket** (`TicketService.generateTicketsForOrder`) + kirim email konfirmasi (`sendOrderConfirmationEmail`).
+  - `cancel`/`deny`/`expire` → order **`CANCELLED`**/**`EXPIRED`** + **restore kuota** (`handleExpiredOrCancelledOrder`).
+  - Idempotent: order sudah `PAID`/`CANCELLED`/`EXPIRED` → duplikat diabaikan.
+  - Signature tidak cocok → `401`. Body tanpa `order_id`/`orderId` (mis. `notification_type=went_merchant`?) → `400`.
 - ⚠️ `GET /payments/methods` dan `GET /payments/methods/virtual-account` sudah **DIHAPUS** dari kode.
 
 ---
 
-## 14. Ticket — My Tickets, E-Ticket Detail & Scan (perlu login, base `/api/tickets` TANPA `/v1`)
+## 14. Ticket — My Tickets, E-Ticket Detail & Scan (base `/api/tickets` TANPA `/v1`)
 
-### GET `/api/tickets/user/{email}` dan alias `GET /api/tickets/my-tickets?userEmail=<email>` (PR #12)
-Kedua endpoint mengembalikan `List<TicketItem>` (entity) milik user via `findByOrderCustomerEmailOrderByCreatedAtDesc`. **Kosong `[]` sampai `generateTicket()` dipanggil** (saat ini tak ada alur yang memanggil!).
+> 🔴 **Rev.14 (PR #38 fixticket):** API ticket dirombak — `GET /api/tickets/user/{email}` **DIHAPUS**. `POST /api/tickets/scan` kini hanya boleh ADMIN/ORGANIZER (CUSTOMER → 403). `issued-detail` punya cek kepemilikan (anti-IDOR). Saat pembayaran sukses (webhook Midtrans / admin-set PAID / generate manual), `TicketService.generateTicketsForOrder(order)` otomatis membuat tiket dari data `order_attendees` (jika pakai `/checkout/attendees`) atau fallback guest "Tanpa Identitas".
 
-### GET `/api/tickets/issued-detail?ticketCode=<ticketItem-uuid>` — E-Ticket Detail (PR #12)
-`ticketCode` = **UUID `ticketItemId`**. Respons `data` = `TicketDetailResponse`:
+### GET `/api/tickets/my-tickets` — My Tickets (rev.14, auth-based)
+Identitas diambil dari `authentication.getName()` (bukan query param lagi) → `findByOrderCustomerEmailOrderByCreatedAtDesc` → `List<TicketItem>`.
+> ⚠️ **Catatan teknis:** `JwtAuthenticationFilter` menaruh **userId (UUID)** sebagai principal, jadi `getName()` = UUID — sementara repository query pakai `order.customer.email`. Bila email ≠ UUID, hasil query kosong `[]`. Jika frontend melihat list kosong padahal ada order PAID, hubungi tim backend (kemungkinan butuh `order.customer.id` atau claim `email` di JWT).
+
+### GET `/api/tickets/issued-detail?ticketCode=<ticketItem-uuid>` — E-Ticket Detail
+`ticketCode` = **UUID `ticketItemId`**. **Anti-IDOR (rev.14):** pemilik tiket (`attendeeEmail == getName()`) atau role ADMIN/ORGANIZER → `TicketDetailResponse`; lain → `403 Forbidden`.
 ```json
 {"msg":"Detail E-Ticket berhasil dimuat","status":200,"data":{"ticketId":"<uuid>","ticketCode":"<uuid>","orderId":"<uuid>","eventTitle":"Neon Nights Concert","eventDate":"2026-12-15T19:00:00","venueName":"Stadion Utama GBK","categoryName":"Early Bird","attendeeName":"Budi","attendeeEmail":"budi@mail.com","attendeeIdentityNumber":"3201234567890123","status":"UNREDEEMED","issuedAt":"2026-09-14T10:00:00"}}
 ```
 Error `400`: `{"msg":"Format kode tiket tidak valid!","status":400,"data":null}` / `{"msg":"Tiket tidak ditemukan!","status":400,"data":null}`.
 
-### POST `/api/tickets/scan`
-Body `{"ticketCode":"<ticketItem-uuid>"}` → `TIKET_VALID` (set `CHECKED_IN`+`checkInAt`) / `TIKET_SUDAH_DIPAKAI` / 400 format tak valid. Respons:
+### POST `/api/tickets/scan` — wajib role ADMIN/ORGANIZER (rev.14)
+`@PreAuthorize("hasAnyRole('ADMIN','ORGANIZER')")` + dicek ulang `SecurityConfig`. Body `{"ticketCode":"<ticketItem-uuid>"}` → `TIKET_VALID` (set `CHECKED_IN`+`checkInAt`) / `TIKET_SUDAH_DIPAKAI` / 400 format tak valid. Respons:
 ```json
 {"msg":"Proses scan selesai","status":200,"data":{"status":"TIKET_VALID","message":"Proses scan selesai"}}
 ```
 
 ```bash
-curl -b cookies.txt localhost:8082/api/tickets/user/john@mail.com                        # [] sampai generateTicket() dipanggil
-curl -b cookies.txt "localhost:8082/api/tickets/my-tickets?userEmail=john@mail.com"      # alias PR #12
-curl -b cookies.txt "localhost:8082/api/tickets/issued-detail?ticketCode=<ticketItem-uuid>"  # E-Ticket detail (PR #12)
+curl -b cookies.txt localhost:8082/api/tickets/my-tickets                                   # my tickets (auth-based, rev.14)
+curl -b cookies.txt "localhost:8082/api/tickets/issued-detail?ticketCode=<ticketItem-uuid>" # E-Ticket detail (anti-IDOR)
 curl -b cookies.txt -X POST localhost:8082/api/tickets/scan -H "Content-Type: application/json" -d '{"ticketCode":"<ticketItem-uuid>"}'
-# → TIKET_VALID / TIKET_SUDAH_DIPAKAI / 400 format tak valid
+# → TIKET_VALID / TIKET_SUDAH_DIPAKAI / 400 format tak valid  (wajib token ADMIN/ORGANIZER, CUSTOMER → 403)
 ```
 
 ---
@@ -731,7 +742,7 @@ curl -b cookies.txt localhost:8082/api/transactions/history
 
 ---
 
-## 16. Admin Module (perlu login **ADMIN** — `hasRole("ADMIN")`, 20 endpoint: 13 merge 4836263 + 7 baru)
+## 16. Admin Module (perlu login **ADMIN** — `hasRole("ADMIN")`, 39 endpoint: 13 merge 4836263 + 7 baru + 19 Phase 1)
 
 > **Auth:** Semua endpoint di bawah butuh cookie/Bearer dengan role `ADMIN` (`SecurityConfig.java:76` `/api/admin/**` + alias `/admin/**` → `hasRole("ADMIN")` dual alias rev.14). CUSTOMER → `403 Forbidden`. Ambil `adminId` dari `authentication.getName()`. Kanonikal `/api/admin/**` (alias lama `/admin/**` tetap didukung).
 
@@ -794,6 +805,8 @@ curl -b cookies.txt localhost:8082/api/transactions/history
 
 **GET `/api/admin/eo-applications/{id}/documents/company-deed`** → `{"documentUrl":"..."}` (link akta perusahaan).
 
+**GET `/api/admin/eo-applications/{id}/documents/company-deed/download`** → **BARU (rev.14)** file akta (download langsung dari `uploads/`, dipakai untuk verifikasi dokumen).
+
 ### Payouts — `AdminPayoutController` (committed PR #24, sharing tabel `refund_requests`)
 
 **GET `/api/admin/payouts?status=`** → `List<PayoutResponse>` (`status` opsional; tanpa filter kembalikan semua — termasuk refund customer!).
@@ -824,26 +837,30 @@ curl -b admin-cookies.txt localhost:8082/api/admin/payouts/<uuid>
 curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/payouts/<uuid>/status -H "Content-Type: application/json" -d '{"status":"APPROVED","adminNote":"Cairkan"}'
 curl -b admin-cookies.txt localhost:8082/api/admin/payouts/<uuid>/documents/reconciliation
 
-# Admin Event Management (Phase 1)
+# Admin Event Management (Phase 1, rev.14 — POST/PUT kini MULTIPART: @RequestPart("event") JSON + file opsional)
 curl -b admin-cookies.txt "localhost:8082/api/admin/events?status=PUBLISHED&category=MUSIC_FESTIVAL&page=0&size=20"
 curl -b admin-cookies.txt localhost:8082/api/admin/events/<uuid>
-curl -b admin-cookies.txt -X POST localhost:8082/api/admin/events -H "Content-Type: application/json" -d '{"title":"Event Baru","description":"Deskripsi","category":"MUSIC_FESTIVAL","venueName":"Gedung X","eventDate":"2026-12-01T10:00:00","ticketTiers":[{"name":"VIP","price":500000,"quota":50}]}'
-curl -b admin-cookies.txt -X PUT localhost:8082/api/admin/events/<uuid> -H "Content-Type: application/json" -d '{"title":"Event Update","description":"Update","category":"MUSIC_FESTIVAL","venueName":"Gedung X","eventDate":"2026-12-01T10:00:00"}'
+curl -b admin-cookies.txt -X POST localhost:8082/api/admin/events -F "event={\"title\":\"Event Baru\",\"description\":\"Deskripsi\",\"category\":\"MUSIC_FESTIVAL\",\"venueName\":\"Gedung X\",\"eventDate\":\"2026-12-01T10:00:00\",\"ticketTiers\":[{\"name\":\"VIP\",\"price\":500000,\"quota\":50}]};type=application/json" -F "file=@banner.jpg"
+curl -b admin-cookies.txt -X POST localhost:8082/api/admin/events -H "Content-Type: application/json" -d '{"event":{"title":"...","ticketTiers":[...]}}'   # ❌ rev.14 TERSEBUT TIDAK DITERIMA — wajib multipart
+curl -b admin-cookies.txt -X PUT localhost:8082/api/admin/events/<uuid> -F "event={\"title\":\"Event Update\",\"description\":\"Update\",\"category\":\"MUSIC_FESTIVAL\",\"venueName\":\"Gedung X\",\"eventDate\":\"2026-12-01T10:00:00\"};type=application/json" -F "file=@banner.jpg"
 curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/events/<uuid>/status -H "Content-Type: application/json" -d '{"status":"PUBLISHED"}'
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/events/<uuid>/publish        # BARU rev.14: publish langsung (DRAFT→PUBLISHED, tanpa check tier)
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/events/<uuid>/approve        # BARU rev.14: approve event EO (PENDING_APPROVAL → PUBLISHED)
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/events/<uuid>/reject        # BARU rev.14: tolak event EO (PENDING_APPROVAL → REJECTED)
 curl -b admin-cookies.txt -X DELETE localhost:8082/api/admin/events/<uuid>
 curl -b admin-cookies.txt localhost:8082/api/admin/events/<uuid>/sales
 curl -b admin-cookies.txt localhost:8082/api/admin/events/export?status=PUBLISHED > events.csv
 
-# Admin Ticket Management (Phase 1)
+# Admin Ticket Management (Phase 1, rev.14 — status checkIn = CHECKED_IN / REVOKED)
 curl -b admin-cookies.txt "localhost:8082/api/admin/tickets?eventId=<uuid>&status=UNREDEEMED&page=0&size=20"
 curl -b admin-cookies.txt localhost:8082/api/admin/tickets/<uuid>
-curl -b admin-cookies.txt -X POST localhost:8082/api/admin/tickets/generate -H "Content-Type: application/json" -d '{"orderId":"<uuid>"}'
-curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/tickets/<uuid>/revoke
-curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/tickets/<uuid>/checkin
+curl -b admin-cookies.txt -X POST localhost:8082/api/admin/tickets/generate -H "Content-Type: application/json" -d '{"orderId":"<uuid>"}'   # panggil TicketService.generateTicketsForOrder (REAL, idempotent)
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/tickets/<uuid>/revoke         # → REVOKED
+curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/tickets/<uuid>/checkin        # → CHECKED_IN + checkInAt
 curl -b admin-cookies.txt localhost:8082/api/admin/tickets/inventory/<uuid>
 curl -b admin-cookies.txt localhost:8082/api/admin/tickets/export?status=UNREDEEMED > tickets.csv
 
-# Admin Transaction Management (Phase 1)
+# Admin Transaction Management (Phase 1, rev.14 — transisi ketat: PENDING→{WAITING_PAYMENT,CANCELLED,EXPIRED}, WAITING_PAYMENT→{PAID,CANCELLED,EXPIRED}, PAID→REFUNDED)
 curl -b admin-cookies.txt "localhost:8082/api/admin/transactions?status=PAID&page=0&size=20"
 curl -b admin-cookies.txt localhost:8082/api/admin/transactions/<uuid>
 curl -b admin-cookies.txt -X PATCH localhost:8082/api/admin/transactions/<uuid>/status -H "Content-Type: application/json" -d '{"status":"REFUNDED","adminNote":"Refund dikabulkan"}'
@@ -921,8 +938,7 @@ Sukses `200`: `{"msg":"Berhasil mengambil daftar event","status":200,"data":{"co
 
 **GET `/api/events/featured`** → `200` (tanpa param, max 3, shape sama).
 
-**POST `/api/events/create`** → `201` (⚠️ MOCK STUB, PR #25 — **Publik!** `SecurityConfig` permit `/api/events/**` untuk semua method)
-Body: Map bebas (diabaikan server). Sukses: HTTP `201`, body `{"msg":"Event berhasil dibuat","status":200,"data":{"eventId":"<random-uuid>","status":"DRAFT"}}` — **tak ada yang disimpan ke DB**. ⚠️ Catatan keamanan: endpoint publik tanpa auth; aman sementara karena no-op, tapi pertimbangkan `authenticated()` + role EO sebelum diisi logic real. DTO `CreateEventRequest.java` (title/description/category/location/venueName/eventDate/bannerUrl/facilities[]/ticketTiers[]) sudah dibuat tapi **belum dipakai** controller (masih terima Map).
+**POST `/api/events/create`** → `201` (⚠️ MOCK STUB, PR #25 — **sejak rev.14 TIDAK lagi publik**): `SecurityConfig` kini permit hanya **`GET /api/events/**`** (POST/PUT/DELETE event butuh login → `401` tanpa token). Body: Map bebas (diabaikan server). Sukses (saat login): HTTP `201`, body `{"msg":"Event berhasil dibuat","status":200,"data":{"eventId":"<random-uuid>","status":"DRAFT"}}` — **tak ada yang disimpan ke DB**. Endpoint tetap no-op stub; pembuatan event real untuk ADMIN → `POST /api/admin/events` (§17.11, multipart), untuk EO → `POST /api/organizer/events` (§17.10, multipart). DTO `CreateEventRequest.java` (title/description/category/location/venueName/eventDate/bannerUrl/facilities[]/ticketTiers[]) sekarang **dipakai ** sebagai `@RequestPart("event")` di admin & organizer events.
 
 **GET `/api/events/{id}`** → `200` / `404`
 Path: `id` (uuid event). Publik.
@@ -944,7 +960,7 @@ Error `404`: `{"msg":"Event tidak ditemukan","status":404,"data":null}`.
 
 **POST `/api/checkout/initiate`** → `200`
 Body (`InitiateCheckoutRequest.java`, tanpa `@Valid`): `tierId` (uuid, Ya), `quantity` (int, Ya).
-Sukses `200`: `data` = entity `Order` (`{orderId,quantity,adminFee:5000,totalAmount,status:"PENDING",expiredAt:+15mnt,...}`, relasi lazy di-ignore). Kuota dicek tapi **tidak dikurangi**.
+Sukses `200`: `data` = entity `Order` (`{orderId,quantity,adminFee:5000,totalAmount,status:"PENDING",expiredAt:+15mnt,...}`, relasi lazy di-ignore). **Kuota DIKURANGI (rev.14)** — `ticketTier.decreaseQuota(quantity)` anti-overselling. Kembali saat order EXPIRED/CANCELLED via `OrderService.handleExpiredOrCancelledOrder`.
 Error `400`: `Ticket tier tidak ditemukan` / `Kuota tiket tidak mencukupi` / `User tidak ditemukan`. `401` tanpa token.
 
 **POST `/api/checkout/attendees`** → `200`
@@ -957,7 +973,7 @@ Body (`AttendeeRequest.java`, tanpa `@Valid`): `orderId` (string UUID, Ya), `att
 | `phoneNumber` | string | Ya |
 | `identityNumber` | string | Ya (NIK/No. KTP) |
 
-Sukses `200`: `data: [{id,orderId,fullName,email,phoneNumber,identityNumber}]` (tersimpan `order_attendees`).
+Sukses `200`: `data: [{id,orderId,fullName,email,phoneNumber,identityNumber}]` (tersimpan `order_attendees`). Data ini sumber `generateTicketsForOrder` saat pembayaran PAID.
 
 **POST `/api/checkout/calculation`** → `200` (hitung saja, TIDAK simpan order)
 Body (`CalculationRequest.java`): `tierId` (uuid, Ya), `quantity` (int, Ya), `discountAmount` (number, Tidak, default 0).
@@ -974,34 +990,41 @@ Error `400`: `Order tidak ditemukan` / `Order tidak dapat diproses pada status <
 **GET `/api/orders/{orderId}/total-amount`** → `200`: `data: {totalAmount}` (dari summary).
 **GET `/api/orders/{orderId}/expired-time`** → `200`: `data: {expiredAt}` (dari summary).
 
-### 17.5 Payment — `PaymentController` (`/api/payments`; charge = Bearer, notification = **Public** sejak PR #24)
+### 17.5 Payment — `PaymentController` (base `{"/api/payments","/api/v1/payments"}`; charge = Bearer, notification = **Public**)
 
 **POST `/api/payments/charge`** → `200` (REAL Midtrans Snap sandbox)
-Body (langsung `Map`, **tanpa DTO/validasi** — semua wajib, hilang satu → `400` NPE):
+Body (langsung `Map`, **tanpa DTO/validasi** — field wajib, `orderId` hilang → `400 {"msg":"orderId wajib diisi"}`):
 
-| Field | Tipe | Req |
-|---|---|---|
-| `orderId` | string (UUID) | Ya |
-| `grossAmount` | number | Ya |
-| `customerName` | string | Ya |
-| `customerEmail` | string | Ya |
+| Field | Tipe | Requ | Alias snake_case |
+|---|---|---|---|
+| `orderId` | string (UUID) | Ya | `order_id` |
+| `grossAmount` | number | Ya | — |
+| `customerName` | string | Ya | `customer_name` |
+| `customerEmail` | string | Ya | `customer_email` |
 
 Sukses `200`: `{"msg":"Snap Token berhasil dibuat","status":200,"data":{"snapToken":"...","redirectUrl":"https://app.sandbox.midtrans.com/snap/v2/vtweb/..."}}` (via `MidtransService.createSnapTransaction`, Basic Auth server-key).
-Error `400`: `Gagal menghubungkan transaksi ke Midtrans Snap API`.
+Error: `400 orderId wajib diisi` / `500 Gagal menghubungkan transaksi ke Midtrans Snap API` (order tak ditemukan / API Midtrans error).
 > 🗑️ DEPRECATED/DIHAPUS: `GET /payments/methods`, `GET /payments/methods/virtual-account` (tak ada di kode). DTO `PaymentChargeRequest`/`PaymentChargeResponse` stale (mock VA lama) — charge pakai Map. `PaymentService.processPaymentCharge()` dead code.
 
-**POST `/api/payments/midtrans-notification`** → `200` (Public sejak PR #24 — `SecurityConfig` permitAll karena server Midtrans tak punya JWT; ⚠️ log-only)
-Body (Map bebas): `order_id` (string), `transaction_status` (string: `settlement`/`capture`/`cancel`/`expire`/…).
-Sukses `200` **tanpa token**: `{"msg":"Notifikasi Midtrans berhasil diproses","status":200,"data":"OK"}` — **status order TIDAK diupdate** (cabang `settlement`/`cancel` masih komentar). Verified live.
+**POST `/api/payments/midtrans-notification`** (+ alias `/api/v1/payments/midtrans-notification`) → `200`/`400`/`401` — ✅ **REAL processing (rev.14, bukan log-only lagi)**
+Public karena server Midtrans tak punya JWT (`SecurityConfig` permitAll). Body (Map bebas): `order_id` **atau** `orderId` (wajib), `transaction_status` (`settlement`/`capture`/`cancel`/`deny`/`expire`), `status_code`, `gross_amount`, + header `X-Signature` (SHA-512 dari `order_id + status_code + gross_amount + midtrans.server-key`, dikirim Midtrans).
+Alur:
+- `capture`/`settlement` + `accept` → order **`PAID`** (+`paidAt`) → **auto generate semua tiket** (`TicketService.generateTicketsForOrder`, idempotent) → email konfirmasi (`sendOrderConfirmationEmail`).
+- `cancel`/`deny`/`expire` → order **`CANCELLED`**/**`EXPIRED`** → **restore kuota** (`OrderService.handleExpiredOrCancelledOrder`).
+- Idempotent: order sudah `PAID`/`CANCELLED`/`EXPIRED` → duplikat diabaikan, tetap `200`.
+Error: `401 {"msg":"Signature Midtrans tidak valid!"}` (perhitungan SHA-512/Hex tak cocok); `400 {"msg":"Data order tidak lengkap (order_id/orderId wajib)"}` (body tanpa identifier order). Verified dari kode `PaymentController`.
 
-### 17.6 Ticket — `TicketController` (`/api/tickets` TANPA `/v1`, semua Bearer)
+### 17.6 Ticket — `TicketController` (`/api/tickets` TANPA `/v1`, semua Bearer) — dirombak PR #38/rev.14
 
-**GET `/api/tickets/user/{email}`** dan alias **GET `/api/tickets/my-tickets?userEmail=`** → `200`
-Path/query: `email` (path, opsional bila query ada) / `userEmail` (query, fallback). Sukses `200`: `data: [TicketItem...]` via `findByOrderCustomerEmailOrderByCreatedAtDesc` — kosong `[]` sampai `generateTicket()` dipanggil (saat ini tak ada alur yang memanggil).
-**GET `/api/tickets/issued-detail?ticketCode=<uuid>`** → `200` / `400`
-Query: `ticketCode` (Ya — UUID `ticketItemId`). Sukses `data` (`TicketDetailResponse`): `{ticketId,ticketCode,orderId,eventTitle,eventDate,venueName,categoryName,attendeeName,attendeeEmail,attendeeIdentityNumber,status,issuedAt}`. Error `400`: `Format kode tiket tidak valid!` / `Tiket tidak ditemukan!` (controller catch → `badRequest`).
-**POST `/api/tickets/scan`** → `200` / `400`
-Body (Map): `ticketCode` (string UUID, Ya). Sukses `200`: `data: {status:"TIKET_VALID"|"TIKET_SUDAH_DIPAKAI",message:"Proses scan selesai"}` (`TIKET_VALID` → set `CHECKED_IN`+`checkInAt`). Error `400` format tak valid.
+**GET `/api/tickets/my-tickets`** → `200`
+Tanpa param. Identitas dari `authentication.getName()` → `findByOrderCustomerEmailOrderByCreatedAtDesc` → `data: [TicketItem...]`.
+> ⚠️ **Bug potensial (flag ke backend):** `JwtAuthenticationFilter` menaruh **userId (UUID)** di principal → `getName()` = UUID, padahal repository query pakai `order.customer.email`. Akibatnya `my-tickets` kemungkinan besar selalu `[]`. Sampai diperbaiki, recommended workaround: backend harus expose email di claim JWT/subject, atau query pakai `order.customer.id`. Frontend: jangan andalkan `my-tickets` dulu untuk menampilkan tiket; gunakan `GET /api/transactions/history` + `issued-detail`.
+
+**GET `/api/tickets/issued-detail?ticketCode=<uuid>`** → `200` / `400` / `403`
+Query: `ticketCode` (Ya — UUID `ticketItemId`). **Anti-IDOR (rev.14):** jika `attendeeEmail` milik tiket ≠ `authentication.getName()` **dan** role bukan ADMIN/ORGANIZER → `403 {"msg":"Forbidden: akses ditolak","status":403}`. Sukses `data` (`TicketDetailResponse`): `{ticketId,ticketCode,orderId,eventTitle,eventDate,venueName,categoryName,attendeeName,attendeeEmail,attendeeIdentityNumber,status,issuedAt}`. Error `400`: `Format kode tiket tidak valid!` / `Tiket tidak ditemukan!`.
+
+**POST `/api/tickets/scan`** → `200` / `400` / `403` — **wajib role ADMIN/ORGANIZER**
+`@PreAuthorize("hasAnyRole('ADMIN','ORGANIZER')")` + `SecurityConfig` `hasAnyRole`. CUSTOMER → `403`. Body (Map): `ticketCode` (string UUID, Ya). Sukses `200`: `data: {status:"TIKET_VALID"|"TIKET_SUDAH_DIPAKAI",message:"Proses scan selesai"}` (`TIKET_VALID` → set `CHECKED_IN`+`checkInAt`). Error `400` format tak valid.
 > DTO `TicketScanRequest/Response`, `TicketSummaryResponse`, `TicketItemResponse` BELUM DIPAKAI controller manapun.
 
 ### 17.7 User/Profile — `UserController` (`/api`, semua Bearer, userId dari `authentication.getName()`)
@@ -1043,45 +1066,47 @@ Sukses `200`: `data` (`RefundDetailResponse`): `{refundId,orderId,amount,reason,
 
 Fix: `@GetMapping({"/terms-conditions","/api/terms-conditions"})` + `SecurityConfig:70` permit keempat path. `LegalService` tetap hardcoded (MOCK content, bukan DB) — render `content` sebagai HTML atau map `sections` untuk tampilan native.
 
-### 17.10 Organizer — `OrganizerController` (**base `/api/organizer`** sejak PR #25 — ⚠️ BREAKING, path lama `/api/organizer/*` mati; 29 endpoint, Bearer) — HYBRID DB + mock fallback (PR #21) + 9 stub baru
+### 17.10 Organizer — 6 controller (base `/api/organizer`, ⚠️ BREAKING path `/organizer/*` mati; 30 endpoint, Bearer) — HYBRID DB + mock fallback
 
-`OrganizerService.java` (638 baris) DB-backed: tiap method baca `organizerRepository.findByUserUserId(currentUserId)` dulu; bila ada konteks organizer → data REAL; bila tidak → fallback statis dengan flag **`"mock": true`** (kasus real ditandai `"real": true`). Frontend bisa branching dari flag ini. Semua body Map tanpa DTO/validasi (key `snake_case`!). Upload file benar-benar tersimpan (`uploads/avatars|organizer-docs/...`, butuh `upload.dir`), kecuali deed URL belum ditulis ke `organizer.akta_perusahaan`.
+> **Rev.14 (PR #37/#40/#42):** `OrganizerController` **dipecah jadi 6 controller** di `controller/organizer/`: `OrganizerController` (registrasi/dokumen/status/auth), `OrganizerProfileController`, `OrganizerDashboardController`, `OrganizerEventController`, `OrganizerRefundController`, `OrganizerPayoutController` — tiap service-nya di `service/organizer/`. `OrganizerService` lama tinggal ±128 baris. Pola tetap: tiap method baca `organizerRepository.findByUserUserId(currentUserId)` → REAL bila konteks ada (flag `real:true` di beberapa), fallback statis `mock:true` bila tidak. **Events & dashboard EO kini REAL DB-backed** (bukan 9 stub — 3 stub dashboard lama `metrics/recent-events/recent-transactions` DIHAPUS, diganti controller baru yang REAL). Semua body Map/DTO tanpa `@Valid` (key `snake_case`!). Upload dipakai `FileStorageService` baru (PNG/JPG/JPEG/WEBP/GIF ≤5MB).
 
-**Registrasi & status**
-**POST `/api/organizer/register`** → `200`. Body (Map): `name`|`organizer_name` (default nama user), `npwp_number`?, `bank_name`?, `bank_account_number`?. Baru → simpan `Organizer(VERIFICATION_STATUS=PENDING)` + `data: {organizer_id,organizer_name,verification_status:"PENDING",user_id}`. Sudah terdaftar → `{organizer_id,organizer_name,verification_status,message:"Organizer sudah terdaftar"}`. Tanpa login → mock `{organizer_name,verification_status:"PENDING",mock:true,note:"Login dulu..."}`.
+**Registrasi & status** — `OrganizerController.java`
+**POST `/api/organizer/register`** → `200`. Body (Map): `name`|`organizer_name` (default nama user), `npwp_number`?, `bank_name`?, `bank_account_number`?. Baru → simpan `Organizer(vertifikasi)` + `data: {organizer_id,organizer_name,verification_status,user_id}`. Sudah terdaftar → `{organizer_id,organizer_name,verification_status,message:"Organizer sudah terdaftar"}`. Tanpa login → mock. `verificationStatus` baru diset `UNVERIFIED` (default entity) / registrasi ulang = kirim status saat ini.
 **POST `/api/organizer/documents/upload`** → `200`. Multipart `file` + query/form `type` (default `"KTP"`). File disimpan `uploads/organizer-docs/` → `data: {document_type,file_name,file_size,document_url,uploaded_at}`.
-**GET `/api/organizer/status`** → `200`. REAL: `{organizer_id,organizer_name,verification_status,created_at}`; fallback mock `{organizer_name:"PT Penyelenggara Event",verification_status:"PENDING",mock:true}`.
-**GET `/api/organizer/dashboard`** → `200`. REAL (`real:true`): `{total_revenue (sum order PAID/WAITING_PAYMENT milik EO),active_events,total_events,tickets_sold,organizer_id}`; fallback mock `{total_revenue:42500000,active_events:2,tickets_sold:1248,mock:true}`.
+**GET `/api/organizer/status`** → `200`. REAL: `{organizer_id,organizer_name,verification_status,created_at}`; fallback mock.
+**GET `/api/organizer/dashboard`** → `200` (hybrid). REAL (`real:true`): `{total_revenue (sum order PAID/WAITING_PAYMENT milik EO),active_events,total_events,tickets_sold,organizer_id}`; fallback mock.
 
-**Profil & legalitas**
+**Profil & legalitas** — `OrganizerProfileController.java`
 **GET `/api/organizer/profile`** → `200`. REAL: `{organizer_id,user_id,name,pic_name,email,phone,npwp,bank_name,bank_account_number,verification_status,avatar_url (dicebear seed organizerId),created_at}`; user non-organizer → `{...,verification_status:"UNREGISTERED",note:"Belum terdaftar...POST /organizer/register dulu"}`; tanpa login → mock Harmoni (`mock:true`).
-**PUT `/api/organizer/profile`** → `200`. Body key: `name`|`organizer_name`, `npwp`|`npwp_number`, `bank_name`, `bank_account_number`, `pic_name` (→ `users.name`), `phone` (→ `users.phone`). Persist + echo payload + `{organizer_id,updated_at}`; tanpa konteks → echo saja.
-**POST `/api/organizer/profile/avatar`** → `200`. Multipart `file` → simpan `uploads/avatars/` → `{avatar_url,file_name,file_size}`.
-**POST `/api/organizer/profile/upload-portfolio`** → `200`. Multipart `file` → `uploads/organizer-docs/portfolio/` → `{portfolio_url,file_name,file_size}`.
-**POST `/api/organizer/profile/upload-deed`** → `200`. Multipart `file` → `uploads/organizer-docs/deeds/` → `{company_deed_url,...}` (⚠️ PARTIAL: file tersimpan, tapi URL **belum** ditulis ke `organizer.akta_perusahaan`).
+**PUT `/api/organizer/profile`** → `200`. Body key: `name`|`organizer_name`, `npwp`|`npwpp` (entity field `npwpNumber`), `bank_name`, `bank_account_number`, `pic_name` (→ `users.name`), `phone` (→ `users.phone`). Persist + echo payload + `{organizer_id,updated_at}`.
+**POST `/api/organizer/profile/avatar`** → `200`. Multipart `file` → `uploads/avatars/` → `{avatar_url,file_name,file_size}`.
+**POST `/api/organizer/profile/upload-portfolio`** → `200`. Multipart `file` → `uploads/organizer-docs/portfolio/`.
+**POST `/api/organizer/profile/upload-deed`** → `200`. Multipart `file` → `uploads/organizer-docs/deeds/` → `{company_deed_url,...}`. ⚠️ file tersimpan tapi **belum** otomatis ditulis ke `organizer.akta_perusahaan` (still manual/partial).
 **GET `/api/organizer/profile/document`** → `200`. REAL: `{organizer_id,akta_perusahaan,has_akta,portfolio_name,deed_name,ktp_name}`; fallback mock (`mock:true`).
 
-**Auth EO**
-**POST `/api/organizer/auth/change-password`** → `200`. Body: `oldPassword` (Ya), `newPassword`|`new_password` (Ya). Login → verifikasi BCrypt + update `auth.password`; salah → `400 Password lama salah!`; tanpa login → no-op tetap `200` (`data: null`).
-**POST `/api/organizer/auth/logout`** → `200` (⚠️ STUB no-op, hanya log). Frontend harus panggil `POST /api/user/logout` untuk logout sungguhan.
+**Dashboard EO — `OrganizerDashboardController.java` (✅ REAL sejak PR #36/#40, bukan stub lagi)**
+**GET `/api/organizer/dashboard/metrics`** → `200` (REAL): `{totalEvents,totalRevenue,totalTicketsSold,...}` dihitung dari DB milik EO (`OrderRepository.findAll().stream()` filter organizer); kosong → `0` (`real:true` bila konteks, `mock:true` bila login tanpa konteks).
+**GET `/api/organizer/dashboard/recent-events`** → `200` (REAL): `[Map]` event terbaru milik EO.
+**GET `/api/organizer/dashboard/recent-transactions`** → `200` (REAL): `[Map]` order terbaru milik EO.
 
-**Refund milik EO** (sumber `refund_requests` by `organizerId`; kosong → fallback PENDING global max 20; tanpa login → mock `REF-001`)
+**Event milik EO — `OrganizerEventController.java` (✅ REAL DB sejak PR #42 — create/update MULTIPART, bukan 6 stub lagi)**
+**GET `/api/organizer/events`** → `200` (REAL): `data: [Map]` event milik EO (list). **POST `/api/organizer/events`** → `201` (REAL, mulai rev.14 = `201`; dulu `200` stub): **multipart** `event` (@RequestPart `CreateEventRequest` JSON) + `file` (banner opsional). Simpan `Event(DRAFT)` + `ticket_tiers` (persist). Sukses: `AdminEventResponse`-style dengan `eventId`. **PUT `/api/organizer/events/update`** → `200` (REAL): multipart `event` + `file`? — update event milik EO (pengecekan kepemilikan, bukan punya → `400`). **POST `/api/organizer/events/publish?id=<uuid>`** → `200` (REAL): status event → **`PENDING_APPROVAL`** (menunggu approve admin — Alur EO-Publish). **GET `/api/organizer/events/draft`** → `200` (REAL): `[Map]` event EO berstatus `DRAFT`. **GET `/api/organizer/events/{id}/sales-summary`** → `200` (REAL): `{eventId,ticketsSold,totalRevenue,...}` dihitung dari order tier-tiers event. **POST `/api/organizer/events/banner`** → `200` (BARU rev.14): multipart `file` + `eventId` (query/form) → simpan `uploads/event-banners/` → `{banner_url:"/uploads/event-banners/<uuid>_<file>"}` — EO punya endpoint banner terpisah (admin TIDAK punya — banner admin via part `file` di POST/PUT events).
+
+**Auth EO** — `OrganizerController`
+**POST `/api/organizer/auth/change-password`** → `200`. Body: `oldPassword` (Ya), `newPassword`|`new_password` (Ya). Login → verifikasi BCrypt + update `auth.password`; salah → `400 Password lama salah!`; tanpa login → no-op `200` (`data: null`).
+**POST `/api/organizer/auth/logout`** → `200` (⚠️ STUB no-op, hanya log). Frontend panggil `POST /api/user/logout` untuk logout sungguhan.
+
+**Refund milik EO** — `OrganizerRefundController.java` (sumber `refund_requests` by `organizerId`; kosong → fallback PENDING global max 20; tanpa login → mock `REF-001`)
 **GET `/api/organizer/refunds`** → `200`: `[{refund_id,order_id,customer_id,amount,reason,bank_name,account_number,account_holder,status,created_at}]`.
 **GET `/api/organizer/refunds/detail?id=<uuid>`** → `200`: `{refund_id,order_id,amount,reason,bank_name,account_number,account_holder,status,rejection_reason,admin_note,created_at}` (+mock bila id bukan UUID/tak ada).
-**PATCH `/api/organizer/refunds/{id}/status`** → `200`. Body key: `status`|`newStatus` (default APPROVED), `adminNote`|`admin_note`?, `rejection_reason`?. APPROVED/REJECTED → `processedAt=now`. Sukses: `{refund_id,status,admin_note,processed_at}`; fallback mock `{refund_id,status,notes,mock:true}`.
+**PATCH `/api/organizer/refunds/{id}/status`** → `200`. Body key: `status`|`newStatus` (default APPROVED), `adminNote`|`admin_note`?, `rejection_reason`?. APPROVED/REJECTED → `processedAt=now`. Sukses: `{refund_id,status,admin_note,processed_at}`; fallback mock.
 
-**Payout & saldo EO**
+**Payout & saldo EO** — `OrganizerPayoutController.java`
 **GET `/api/organizer/bank-accounts`** → `200`. REAL dari entity: `[{id (organizerId),bank_name,account_number,account_holder,is_primary:true}]`; fallback mock BCA (`mock:true`).
 **GET `/api/organizer/events/{id}/payout-balance`** → `200`. Path `id` (Long eventId). REAL: `{event_id,organizer_id,total_sales,withdrawable_balance (=90%),pending_payout (=10%),currency:"IDR"}`; fallback mock 50jt/45jt/5jt (`mock:true`).
-**GET `/api/organizer/payouts`** → `200`. REAL (`findByOrganizerId`): `[{id,payout_id,amount,status,bank_name,requested_at,processed_at}]`; kosong/tanpa login → mock `{id:101,amount:25000000,status:"SUCCESS",requested_at:"2026-09-10",mock:true}`.
-**POST `/api/organizer/payouts`** → `200`. Body: `amount` (Ya, wajib ada untuk REAL), `description`?, `bank_name`? (default BCA), `account_number`?, `account_holder`?. Login + amount → simpan `RefundRequestEntity{organizerId,customerId,PENDING}` → `{payout_id,amount,status:"PENDING_APPROVAL",organizer_id}`; selain itu mock `{payout_id:102,amount,status:"PENDING_APPROVAL",mock:true}`.
-**GET `/api/organizer/payouts/detail?id=`** → `200` (⚠️ praktis selalu mock: param `Long`, UUID tak bisa di-bind → fallback `{id,amount:25000000,status:"SUCCESS",bank_name,account_number,transfer_proof_url,mock:true}`).
-
-**Event milik EO — 6 stub BARU (PR #25, semua ⚠️ MOCK, Bearer)**
-**GET `/api/organizer/events`** → `200 data: []`. **POST `/api/organizer/events`** → `200`: body Map bebas (diabaikan) → `{eventId:"<random-uuid>",status:"DRAFT"}`. **PUT `/api/organizer/events/update`** → `200`: echo body. **POST `/api/organizer/events/publish?id=<long>`** → `200`: `{eventId:<id>,status:"PUBLISHED"}` (tak update DB!). **GET `/api/organizer/events/draft`** → `200 data: []`. **GET `/api/organizer/events/{id}/sales-summary`** → `200`: `{eventId,ticketsSold:0,totalRevenue:0}`.
-
-**Dashboard EO — 3 stub BARU (PR #25, semua ⚠️ MOCK, Bearer; bedakan dengan `GET /api/organizer/dashboard` hybrid di atas)**
-**GET `/api/organizer/dashboard/metrics`** → `200`: `{totalEvents:0,totalRevenue:0,totalTicketsSold:0}`. **GET `/api/organizer/dashboard/recent-events`** → `200 data: []`. **GET `/api/organizer/dashboard/recent-transactions`** → `200 data: []`.
+**GET `/api/organizer/payouts`** → `200`. REAL (`findByOrganizerId`): `[{id,payout_id,amount,status,bank_name,requested_at,processed_at}]`; kosong/tanpa login → mock.
+**POST `/api/organizer/payouts`** → `200`. Body: `amount` (Ya, wajib untuk REAL), `description`?, `bank_name`? (default BCA), `account_number`?, `account_holder`?. Login + amount → simpan `RefundRequestEntity{organizerId,customerId,PENDING}` → `{payout_id,amount,status:"PENDING_APPROVAL",organizer_id}`; selain itu mock `{payout_id:102,...,mock:true}`.
+**GET `/api/organizer/payouts/detail?id=<uuid>`** → `200` (**perbaikan rev.14** — param kini `String` UUID, bukan `Long`): parse UUID → `findById` + cek kepemilikan (`organizerId` milik EO) → `{id,amount,status,bank_name,account_number,account_holder,created_at}`; id bukan UUID → `400 Format ID payout tidak valid`; tak ada → `404`; bukan milik EO → `403 Access ditolak`.
 
 ### 17.11 Admin — `/admin/**` (39 endpoint, semua ADMIN, `adminId` dari `authentication.getName()`)
 
@@ -1097,13 +1122,18 @@ CUSTOMER/ORGANIZER → `403 {"msg":"Forbidden: akses ditolak","status":403}`. Er
 
 **Payouts** (`AdminPayoutController` `/api/admin/payouts`, sharing tabel `refund_requests` — TAK ADA tabel terpisah): **GET `?status=`** → `200 [PayoutResponse]` (`{payoutId,organizerId,nameOrganizer ("-" bila null),amount,bankName,accountNumber,accountHolder,status,rejectionReason,adminNote,createdAt,updatedAt}`) — ⚠️ tanpa discriminator, refund customer ikut muncul. **GET `/{id}`** → `200 PayoutDetailResponse` (+`userEmail:null,userPhone:null,reconciliationDocumentUrl`). **PATCH `/{id}/status`** → `200 PayoutDetailResponse` terbaru. Body (`UpdatePayoutStatusRequest`, `@Valid`): `status` (Ya, `@NotBlank`), `adminNote` (Tidak); APPROVED → `processedAt=now` + audit `UPDATE_PAYOUT_STATUS`. **GET `/{id}/documents/reconciliation`** → `200` detail (termasuk `reconciliationDocumentUrl`, null sampai diisi manual).
 
-**Events** (`AdminEventController` `/api/admin/events`, dual alias `/admin/events`): **GET `?status=&category=&organizerId=&dateFrom=&dateTo=&search=&page=0&size=20`** → `200 Page<AdminEventListResponse>` (`{eventId,title,category,venueName,startDate,endDate,status,isFeatured,organizerId,organizerName,bannerUrl,createdAt}`). Filter: `status` (DRAFT/PUBLISHED/CANCELLED/DELETED), `category` (MUSIC_FESTIVAL/SEMINAR/etc.), `organizerId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `search` (keyword di title/description/venue). **GET `/{id}`** → `200 AdminEventResponse` (`{eventId,organizerId,organizerName,title,description,category,venueName,startDate,endDate,status,isFeatured,bannerUrl,facility,lineup,ticketTiers:[{tierId,tierName,price,totalQuota,availableQuota,soldCount}],salesSummary:{totalOrders,ticketsSold,revenuePaid,revenuePending},createdAt}`). **POST** → `201 AdminEventResponse` + audit. Body (`CreateEventRequest`, `@Valid`): `title` (string), `description` (string), `category` (string), `location` (string), `venueName` (string), `eventDate` (ISO datetime), `bannerUrl` (string nullable), `facilities` (List<String> nullable), `ticketTiers` (List<{name,price,quota}> nullable). **PUT `/{id}`** → `200 AdminEventResponse` + audit. Body sama dengan POST. **PATCH `/{id}/status`** → `200 data:null` + audit. Body (`AdminEventStatusRequest`, `@Valid`): `status` (@NotBlank — DRAFT/PUBLISHED/CANCELLED/DELETED), `rejectionReason` (opsional). **DELETE `/{id}`** → `200 data:null` + audit `DELETE_EVENT` (soft delete: status → DELETED). **GET `/{id}/sales`** → `200 AdminEventSalesResponse` (`{totalOrders,totalTicketsSold,totalRevenuePaid,totalRevenuePending,salesByTier:{"tierName":{tierName,totalQuota,availableQuota,soldCount,revenue}}}`). **GET `/export?status=&category=&organizerId=&dateFrom=&dateTo=&search=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="events.csv"`). Header: `eventId,title,category,venueName,startDate,endDate,status,organizerName,isFeatured,createdAt`.
+**Events** (`AdminEventController` `/api/admin/events`, dual alias `/admin/events`): **GET `?status=&category=&organizerId=&dateFrom=&dateTo=&search=&page=0&size=20`** → `200 Page<AdminEventListResponse>` (`{eventId,title,category,venueName,startDate,endDate,status,isFeatured,organizerId,organizerName,bannerUrl,createdAt}`). Filter: `status` (DRAFT/PUBLISHED/CANCELLED/DELETED), `category` (MUSIC_FESTIVAL/SEMINAR/etc.), `organizerId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `search` (keyword di title/description/venue). **GET `/{id}`** → `200 AdminEventResponse` (`{eventId,organizerId,organizerName,title,description,category,venueName,startDate,endDate,status,isFeatured,bannerUrl,facility,lineup,ticketTiers:[{tierId,tierName,price,totalQuota,availableQuota,soldCount}],salesSummary:{totalOrders,ticketsSold,revenuePaid,revenuePending},createdAt}`). **POST** → `201 AdminEventResponse` + audit. ⚠️ **MULTIPART (rev.14):** `@RequestPart("event")` = `CreateEventRequest` JSON file-part (`title`,`description`,`category`,`location`,`venueName`,`eventDate`,`bannerUrl`?`facilities`?`ticketTiers[{name,price,quota}]`? — semua pakai `@Valid`) + part `file` (opsional, banner). Admin create → status langsung **`PUBLISHED`** + persist `ticket_tiers`. **PUT `/{id}`** → `200 AdminEventResponse` + audit. Multipart sama dengan POST (file opsional); jANGAN kirim `Content-Type: application/json` polos — endpoint butuh `multipart/form-data` (`event` JSON + `file` bila ada), contoh curl §16. **PATCH `/{id}/status`** → `200 data:null` + audit. Body (`AdminEventStatusRequest`, `@Valid`): `status` (@NotBlank), `rejectionReason` (opsional — dipakai untuk REJECTED). Transisi (`AdminEventService`): `DRAFT → {PUBLISHED, CANCELLED, DELETED}`; `PENDING_APPROVAL → {PUBLISHED, REJECTED, DRAFT, CANCELLED, DELETED}`; `PUBLISHED → {DRAFT, CANCELLED, COMPLETED, DELETED}`; `CANCELLED → {DELETED}` — luar set → `400`. **No-op jika status sudah sama** (langsung return, 200). **PATCH `/{id}/publish`** → `200` (**BARU rev.14**): publish langsung dari DRAFT/PENDING_APPROVAL → `PUBLISHED` (tanpa check tier, bypass); no-op jika sudah `PUBLISHED`. **PATCH `/{id}/approve`** → `200` (**BARU rev.14**): event EO `PENDING_APPROVAL` → **`PUBLISHED`**. **PATCH `/{id}/reject`** → `200` (**BARU rev.14**): `PENDING_APPROVAL` → **`REJECTED`** (alur EO→Admin). **DELETE `/{id}`** → `200 data:null` + audit `DELETE_EVENT` (soft delete: status → DELETED). **GET `/{id}/sales`** → `200 AdminEventSalesResponse` (`{totalOrders,totalTicketsSold,totalRevenuePaid,totalRevenuePending,salesByTier:{"tierName":{tierName,totalQuota,availableQuota,soldCount,revenue}}}`). **GET `/export?status=&category=&organizerId=&dateFrom=&dateTo=&search=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="events.csv"`). Header: `eventId,title,category,venueName,startDate,endDate,status,organizerName,isFeatured,createdAt`.
 
-**Tickets** (`AdminTicketController` `/api/admin/tickets`, dual alias `/admin/tickets`): **GET `?eventId=&status=&userId=&dateFrom=&dateTo=&page=0&size=20`** → `200 Page<AdminTicketListResponse>` (`{ticketItemId,ticketCode,eventId,eventTitle,tierName,tierPrice,attendeeName,attendeeEmail,checkInStatus,checkInAt,orderId,orderNumber,createdAt}`). Filter: `eventId` (UUID), `status` (UNREDEEMED/USED/EXPIRED/REFUNDED), `userId` (UUID), `dateFrom`/`dateTo` (ISO datetime). **GET `/{id}`** → `200 AdminTicketResponse` (`{ticketItemId,ticketCode,orderId,orderNumber,eventId,eventTitle,eventVenue,eventDate,tierName,tierPrice,attendeeName,attendeeEmail,attendeeNik,checkInStatus,checkInAt,customerName,customerEmail,createdAt}`). **POST `/generate`** → `201 List<AdminTicketResponse>` + audit. Body (`AdminTicketGenerateRequest`, `@Valid`): `orderId` (@NotNull UUID). Generate tiket dari `order_attendees` terkait orderId. **PATCH `/{id}/revoke`** → `200 data:null` + audit `REVOKE_TICKET` (status → CANCELLED). **PATCH `/{id}/checkin`** → `200 data:null` + audit `CHECKIN_TICKET` (checkInStatus → USED, checkInAt = now). **GET `/inventory/{eventId}`** → `200 Map<String,Object>` (`{eventId,eventTitle,tiers:[{tierId,tierName,totalQuota,availableQuota,soldCount}],totalCapacity,totalSold}`). **GET `/export?eventId=&status=&dateFrom=&dateTo=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="tickets.csv"`). Header: `ticketItemId,ticketCode,eventTitle,tierName,tierPrice,attendeeName,attendeeEmail,checkInStatus,checkInAt,orderNumber,createdAt`.
+**Tickets** (`AdminTicketController` `/api/admin/tickets`, dual alias `/admin/tickets`): **GET `?eventId=&status=&userId=&dateFrom=&dateTo=&page=0&size=20`** → `200 Page<AdminTicketListResponse>` (`{ticketItemId,ticketCode,eventId,eventTitle,tierName,tierPrice,attendeeName,attendeeEmail,checkInStatus,checkInAt,orderId,orderNumber,createdAt}`). Filter: `eventId` (UUID), `status` (UNREDEEMED/USED/EXPIRED/REFUNDED), `userId` (UUID), `dateFrom`/`dateTo` (ISO datetime). **GET `/{id}`** → `200 AdminTicketResponse` (`{ticketItemId,ticketCode,orderId,orderNumber,eventId,eventTitle,eventVenue,eventDate,tierName,tierPrice,attendeeName,attendeeEmail,attendeeNik,checkInStatus,checkInAt,customerName,customerEmail,createdAt}`). **POST `/generate`** → `201 List<AdminTicketResponse>` + audit. Body (`AdminTicketGenerateRequest`, `@Valid`): `orderId` (@NotNull UUID). Generate tiket via `TicketService.generateTicketsForOrder` (idempotent — order sudah punya tiket → return existing). **PATCH `/{id}/revoke`** → `200 data:null` + audit `REVOKE_TICKET` (checkInStatus → **`REVOKED`**, rev.14; dulu tulisannya CANCELLED). **PATCH `/{id}/checkin`** → `200 data:null` + audit `CHECKIN_TICKET` (checkInStatus → **`CHECKED_IN`**, checkInAt = now; rev.14; dulu tulisannya USED). Guard: tiket sudah `CHECKED_IN`/`REVOKED` → `400 Cannot check-in/revoke ticket already X`. **GET `/inventory/{eventId}`** → `200 Map<String,Object>` (`{eventId,eventTitle,tiers:[{tierId,tierName,totalQuota,availableQuota,soldCount}],totalCapacity,totalSold}`). **GET `/export?eventId=&status=&dateFrom=&dateTo=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="tickets.csv"`). Header: `ticketItemId,ticketCode,eventTitle,tierName,tierPrice,attendeeName,attendeeEmail,checkInStatus,checkInAt,orderNumber,createdAt`.
 
-**Transactions** (`AdminTransactionController` `/api/admin/transactions`, dual alias `/admin/transactions`): **GET `?status=&eventId=&userId=&dateFrom=&dateTo=&minAmount=&maxAmount=&page=0&size=20`** → `200 Page<AdminTransactionListResponse>` (`{orderId,orderNumber,eventTitle,tierName,quantity,totalAmount,status,customerName,customerEmail,paidAt,createdAt}`). Filter: `status` (PENDING/WAITING_PAYMENT/PAID/EXPIRED/CANCELLED/REFUNDED), `eventId`/`userId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `minAmount`/`maxAmount` (BigDecimal). **GET `/{id}`** → `200 AdminTransactionResponse` (`{orderId,orderNumber,eventId,eventTitle,eventVenue,tierName,tierPrice,quantity,subtotal,adminFee,totalAmount,status,paymentMethod,transactionIdGateway,customerId,customerName,customerEmail,paidAt,expiredAt,createdAt}`). **PATCH `/{id}/status`** → `200 data:null` + audit `UPDATE_TRANSACTION_STATUS`. Body (`AdminTransactionStatusRequest`, `@Valid`): `status` (@NotBlank — PAID/REFUNDED/CANCELLED/WAITING_PAYMENT), `adminNote` (opsional). Validasi transisi: PENDING/WAITING_PAYMENT → boleh ubah; PAID/REFUNDED/CANCELLED → `400 "Status transaksi tidak dapat diubah dari status [X]!"`. **GET `/export?status=&eventId=&userId=&dateFrom=&dateTo=&minAmount=&maxAmount=`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="transactions.csv"`). Header: `orderId,orderNumber,eventTitle,tierName,quantity,totalAmount,status,customerName,customerEmail,paidAt,createdAt`.
+**Transactions** (`AdminTransactionController` `/api/admin/transactions`, dual alias `/admin/transactions`): **GET `?status=&eventId=&userId=&dateFrom=&dateTo=&minAmount=&maxAmount=&page=0&size=20`** → `200 Page<AdminTransactionListResponse>` (`{orderId,orderNumber,eventTitle,tierName,quantity,totalAmount,status,customerName,customerEmail,paidAt,createdAt}`). Filter: `status` (PENDING/WAITING_PAYMENT/PAID/EXPIRED/CANCELLED/REFUNDED), `eventId`/`userId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `minAmount`/`maxAmount` (BigDecimal). **GET `/{id}`** → `200 AdminTransactionResponse` (`{orderId,orderNumber,eventId,eventTitle,eventVenue,tierName,tierPrice,quantity,subtotal,adminFee,totalAmount,status,paymentMethod,transactionIdGateway,customerId,customerName,customerEmail,paidAt,expiredAt,createdAt}`). **PATCH `/{id}/status`** → `200 data:null` + audit `UPDATE_TRANSACTION_STATUS`. Body (`AdminTransactionStatusRequest`, `@Valid`): `status` (@NotBlank), `adminNote` (opsional). **Transisi ketat (rev.14):** `PENDING → {WAITING_PAYMENT, CANCELLED, EXPIRED}`; `WAITING_PAYMENT → {PAID, CANCELLED, EXPIRED}`; `PAID + status=="REFUNDED"` → **`REFUNDED`** (hanya dari PAID); lain → `400 "Transisi status tidak valid dari <X> ke <Y>"`. WAITING_PAYMENT→PAID/REFUNDED dan PENDING→PAID **TIDAK** boleh langsung (pakai webhook/payment charge). CANCELLED/EXPIRED/REFUNDED → `OrderService.handleExpiredOrCancelledOrder` (restore kuota). **GET `/export`** → `200` CSV binary (`Content-Type: text/plain`, `Content-Disposition: attachment; filename="transactions.csv"`). Header: `orderId,orderNumber,eventTitle,tierName,quantity,totalAmount,status,customerName,customerEmail,paidAt,createdAt`.
 
-### 17.12 Perubahan BREAKING + file statis (PR #23–25, wajib dibaca frontend)
+### 17.12 Perubahan BREAKING + file statis (PR #23–43, wajib dibaca frontend)
+
+**Breaking rev.14 tambahan:**
+- **Ticketing:** `GET /api/tickets/user/{email}` **DIHAPUS** → pakai `GET /api/tickets/my-tickets` (auth-based, tanpa query param). `POST /api/tickets/scan` hanya ADMIN/ORGANIZER (CUSTOMER → `403`). `issued-detail` anti-IDOR.
+- **Events publik:** `SecurityConfig` kini permit **hanya `GET /api/events/**`** — `POST /api/events/create` (MOCK) butuh login (tidak lagi publik).
+- **Admin & EO create/update event = multipart** (`event` JSON part + `file` banner opsional) — body JSON polos `400`/`500`.
 
 **Migrasi path (path lama MATI → `500 "Internal server error: No static resource..."`, bukan 404!):**
 
@@ -1111,21 +1141,23 @@ CUSTOMER/ORGANIZER → `403 {"msg":"Forbidden: akses ditolak","status":403}`. Er
 |---|---|---|
 | `/organizer/*` (20 endpoint) | `/api/organizer/*` | Organizer |
 | `/api/refund/*`, `/api/tickets/refund/*` (7 path) | `/api/refund/*`, `/api/tickets/refund/*` | Refund |
+| `GET /api/tickets/user/{email}` | `GET /api/tickets/my-tickets` | Ticket |
 | — (baru) | `/api/terms-conditions`, `/api/privacy-policy` (alias, publik) | Legal |
+| — (baru) | `/api/v1/payments/**` (alias PaymentController) | Payment |
 
 Aturan ingat: backend **tanpa versioning fallback** — path salah satu karakter → `500` via `GlobalExceptionHandler` (`NoResourceFoundException` bukan `RuntimeException`). Selalu copy-paste path dari §17.
 
-**File statis** (`WebConfig.java`, PR #24): `GET /uploads/**` diserve dari folder lokal `uploads/` (`upload.dir`). URL yang dikembalikan endpoint (`/uploads/avatars/...`, `/uploads/logos/...`, `/uploads/organizer-docs/...`) langsung bisa dipakai `<img src="http://localhost:8082/uploads/avatars/x.png">`. Catatan: URL avatar lama (era mock, file tak pernah disimpan) → `404` saat dibuka.
+**File statis** (`WebConfig.java`, PR #24): `GET /uploads/**` (permitAll di `SecurityConfig`) diserve dari folder lokal `uploads/` (`upload.dir`). URL yang dikembalikan endpoint (`/uploads/avatars/...`, `/uploads/logos/...`, `/uploads/organizer-docs/...`, `/uploads/event-banners/...`) langsung bisa dipakai `<img src="http://localhost:8082/uploads/avatars/x.png">`. Catatan: URL avatar lama (era mock, file tak pernah disimpan) → `404` saat dibuka.
 
 ## ⏳ Modul Lain — SCHEMA ONLY (belum aktif)
 
 | Modul | Rencana Endpoint | Status | HTTP |
 |---|---|---|---|
-| Organizer events | `POST /api/events/create` (stub), `/api/organizer/events/*` (6 stub) | ⚠️ Stub MOCK — belum persist | `201`/`200` mock |
-| Organizer dashboard DB | `/api/organizer/dashboard/metrics|recent-events|recent-transactions` (3 stub) | ⚠️ Stub zeros (beda dari `/dashboard` hybrid) | `200` mock |
+| Organizer events | `POST /api/events/create` (stub publik-kin) | ⚠️ Stub MOCK — belum persist | `201` mock |
+| Organizer dashboard DB | `GET /api/organizer/dashboard/metrics\|recent-events\|recent-transactions` (3) | ✅ **REAL** sejak PR #36/#40 (bukan stub) | `200` real |
 
-> **Sudah AKTIF (bukan schema-only lagi):** User/Profile via PR #11 (+avatar REAL PR #24); **Admin module 20 endpoint** (lihat §16); Refund customer 7 path aktif (§05, base `/api`); Legal 4 path publik (FIXED); Organizer 29 endpoint (18 hybrid + 11 mock, base `/api/organizer`); `POST /api/events/create` stub; `midtrans-notification` publik.
-> Catatan: **register EO sisi customer** (`POST /organizer/register`) ada tapi MOCK — admin hanya bisa memverifikasi organizer yang sudah ada di DB.
+> **Sudah AKTIF (bukan schema-only lagi):** User/Profile via PR #11 (+avatar REAL PR #24); **Admin module 39 endpoint** (lihat §16); Refund customer 7 path aktif (§05, base `/api`); Legal 4 path publik (FIXED); Organizer **30 endpoint** (6 controller hybrid, base `/api/organizer`); Event EO/Dashboard EO = REAL DB (PR #36-#42); Webhook Midtrans REAL (PR #38+#42); Ticket auto-generate saat PAID; Admin create event PUBLISHED, EO publish → PENDING_APPROVAL → admin approve/reject.
+> Catatan: **register EO sisi customer** (`POST /api/organizer/register`) aktif REAL (simpan `Organizer`).
 
 `RescheduleRequest` **dihapus** — jangan panggil. `EoApplication`/`Payout`/`AdminSettings` entity **TIDAK ADA dan jangan buat** (pakai `Organizer`/`RefundRequestEntity`/`Settings`).
 
@@ -1150,11 +1182,11 @@ Network tab Chrome/Fetch: cek `Response` → `msg` untuk toast, `status` untuk b
 
 *   `User.role`: `CUSTOMER` (default) / `ORGANIZER` / `ADMIN`
 *   `Auth.status`: `INACTIVE` / `ACTIVE`
-*   `events.status`: `DRAFT` / `PUBLISHED` / `CANCELLED` / `COMPLETED` (tampilkan `AVAILABLE` di API sebagai alias `PUBLISHED`)
+*   `events.status`: `DRAFT` / `PENDING_APPROVAL` (rev.14, event EO menunggu approve) / `PUBLISHED` / `REJECTED` (rev.14) / `CANCELLED` / `COMPLETED` / `DELETED` (soft delete) — tampilkan `AVAILABLE` di API katalog sebagai alias `PUBLISHED`
 *   `events.category`: `MUSIC_FESTIVAL` / `CONFERENCE` / `EXHIBITION` / `CULINARY` (API kirim display label)
-*   `orders.status`: `PENDING` / `WAITING_PAYMENT` (Midtrans Snap PR #9) / `PAID` / `EXPIRED` / `CANCELLED`
-*   `ticket_items.status`: `UNREDEEMED` / `CHECKED_IN` (hasil scan PR #9/#12) / `REDEEMED` / `EXPIRED`
-*   `refund_requests.status`: `PENDING` / `APPROVED` / `REJECTED`
+*   `orders.status`: `PENDING` / `WAITING_PAYMENT` (Midtrans Snap PR #9) / `PAID` / `EXPIRED` / `CANCELLED` / `REFUNDED`
+*   `ticket_items.status` (field `checkInStatus`): `UNREDEEMED` / `CHECKED_IN` (scan & admin checkin) / `REVOKED` (admin revoke, rev.14) / `EXPIRED` / `REFUNDED`
+*   `refund_requests.status`: `PENDING` / `APPROVED` / `REJECTED` (customer) + `SUCCESS`/`PENDING_APPROVAL` (payout EO)
 *   Lain schema-only: `organizers.verification_status UNVERIFIED`, `bookings PENDING`
 
 ---
@@ -1346,11 +1378,11 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 | GET | `/events/detail/tickets` | ✅ | Field tickets array |
 | **POST** | **`/api/events/create`** | ⚠️ | **ADA sebagai STUB** (publik, random UUID + DRAFT, body diabaikan — perlu persist + `CreateEventRequest`) |
 
-### 03. Checkout & Payment — ✅ 11/11
+### 03. Checkout & Payment — ✅ 11/11 (rev.14: kuota decrement + webhook REAL)
 
 | Method | Endpoint | Status | Controller/Service |
 |---|---|---|---|
-| POST | `/api/checkout/initiate` | ✅ | `CheckoutController` → `OrderService` |
+| POST | `/api/checkout/initiate` | ✅ | `CheckoutController` → `OrderService` (kuota DIKURANGI + restore saat EXPIRED/CANCELLED) |
 | POST | `/api/checkout/attendees` | ✅ | `CheckoutController` → `OrderService` |
 | POST | `/api/checkout/calculation` | ✅ | `CheckoutController` → `OrderService` |
 | GET | `/api/checkout/summary` | ✅ | `CheckoutController` → `PaymentService` |
@@ -1359,18 +1391,18 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 | GET | `/api/orders/{id}/total-amount` | ✅ | `CheckoutController` → `PaymentService` |
 | GET | `/api/orders/{id}/expired-time` | ✅ | `CheckoutController` → `PaymentService` |
 | POST | `/api/payments/charge` | ✅ | `PaymentController` → `MidtransService` (REAL Snap) |
-| POST | `/api/payments/midtrans-notification` | ⚠️ | `PaymentController` (log only, belum update order) |
+| POST | `/api/payments/midtrans-notification` | ✅ | `PaymentController` **REAL** (rev.14) — verifikasi SHA-512, PAID + auto generate tiket + email; cancel/deny/expire → CANCELLED/EXPIRED + restore kuota; idempotent. Alias `/api/v1/payments/...` |
 | GET | `/payments/methods` | 🗑️ | **DIHAPUS dari kode** |
 | GET | `/payments/methods/virtual-account` | 🗑️ | **DIHAPUS dari kode** |
 
-### 04. My Tickets & E-Ticket — ✅ 4/4
+### 04. My Tickets & E-Ticket — ✅ 3/3 (rev.14 dirombak)
 
 | Method | Endpoint | Status | Controller/Service |
 |---|---|---|---|
-| GET | `/api/tickets/user/{email}` | ✅ | `TicketController` → `TicketService` |
-| GET | `/api/tickets/my-tickets?userEmail=` | ✅ | Alias PR #12 |
-| GET | `/api/tickets/issued-detail?ticketCode=` | ✅ | `TicketController` → `TicketService` |
-| POST | `/api/tickets/scan` | ✅ | `TicketController` → `TicketService` |
+| GET | `/api/tickets/my-tickets` | ✅ | `TicketController` auth-based (`getName()`); ⚠️ potensi bug UUID-vs-email |
+| GET | `/api/tickets/issued-detail?ticketCode=` | ✅ | Anti-IDOR (owner/ADMIN/ORGANIZER) |
+| POST | `/api/tickets/scan` | ✅ | Wajib `ADMIN`/`ORGANIZER` (rev.14); CUSTOMER → 403 |
+| GET | `/api/tickets/user/{email}` | 🗑️ | **DIHAPUS rev.14** (PR #38) — jangan dipakai |
 
 ### 05. Refund — 5 REAL + 1 MOCK + 1 PARTIAL (7 path, base `/api`)
 
@@ -1395,7 +1427,7 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 | POST | `/api/user/logout` | ✅ | `UserController` → `AuthService` |
 | GET | `/api/transactions/history` | ✅ | `UserController` → `UserService` |
 
-### 07. Organizer (29 endpoint, base `/api/organizer` sejak PR #25 — path lama `/organizer/*` MATI) — ✅ 18 HYBRID + 11 MOCK; Legal (4 path) — ⚠️ MOCK content, ✅ PUBLIC (BUG fixed PR #25)
+### 07. Organizer (30 endpoint, base `/api/organizer` — path lama `/organizer/*` MATI; 6 controller, PR #37/#40/#42) — ✅ HYBRID DB-backed + events/dashboard REAL; Legal (4 path) — ⚠️ MOCK content, ✅ PUBLIC (BUG fixed PR #25)
 
 | Method | Endpoint | Status | Controller/Service |
 |---|---|---|---|
@@ -1418,16 +1450,17 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 | GET | `/api/organizer/events/{id}/payout-balance` | ✅ hybrid | Hitung real (90%/10%); fallback mock 50jt |
 | GET | `/api/organizer/payouts` | ✅ hybrid | `findByOrganizerId`; fallback mock id 101 |
 | POST | `/api/organizer/payouts` | ✅ hybrid | Simpan payout (`organizerId` terisi!) bila login+amount; fallback mock 102 |
-| GET | `/api/organizer/payouts/detail?id=` | ⚠️ | Praktis selalu mock — param `Long`, UUID tak bisa di-bind |
-| GET | `/api/organizer/events` | ⚠️ | BARU PR #25 — stub `[]` |
-| POST | `/api/organizer/events` | ⚠️ | BARU PR #25 — stub random UUID DRAFT, body diabaikan |
-| PUT | `/api/organizer/events/update` | ⚠️ | BARU PR #25 — stub echo body |
-| POST | `/api/organizer/events/publish?id=` | ⚠️ | BARU PR #25 — stub, tak update DB |
-| GET | `/api/organizer/events/draft` | ⚠️ | BARU PR #25 — stub `[]` |
-| GET | `/api/organizer/events/{id}/sales-summary` | ⚠️ | BARU PR #25 — stub zeros |
-| GET | `/api/organizer/dashboard/metrics` | ⚠️ | BARU PR #25 — stub zeros (beda dari `/dashboard` hybrid) |
-| GET | `/api/organizer/dashboard/recent-events` | ⚠️ | BARU PR #25 — stub `[]` |
-| GET | `/api/organizer/dashboard/recent-transactions` | ⚠️ | BARU PR #25 — stub `[]` |
+| GET | `/api/organizer/payouts/detail?id=` | ✅ | **Perbaikan rev.14** — param jadi `String` UUID → parse + cek kepemilikan; 400/404/403 yang proper |
+| GET | `/api/organizer/events` | ✅ | **REAL sejak PR #42** — list event milik EO (persist DB) |
+| POST | `/api/organizer/events` | ✅ | **REAL** — multipart `event` (CreateEventRequest) + file opsional → DRAFT + persist tiers; `201` |
+| PUT | `/api/organizer/events/update` | ✅ | **REAL** — multipart update (cek kepemilikan) |
+| POST | `/api/organizer/events/publish?id=` | ✅ | **REAL** — DRAFT → **`PENDING_APPROVAL`** (tunggu approve admin) |
+| GET | `/api/organizer/events/draft` | ✅ | **REAL** — list event EO status DRAFT |
+| GET | `/api/organizer/events/{id}/sales-summary` | ✅ | **REAL** — hitung dari orders (+ticketsSold/totalRevenue) |
+| POST | `/api/organizer/events/banner` | ✅ | **BARU rev.14** — multipart file + eventId → `uploads/event-banners/` → `{banner_url}` |
+| GET | `/api/organizer/dashboard/metrics` | ✅ | **REAL** — hitung DB milik EO (sejak PR #36), kosong → 0 |
+| GET | `/api/organizer/dashboard/recent-events` | ✅ | **REAL** — event terbaru EO |
+| GET | `/api/organizer/dashboard/recent-transactions` | ✅ | **REAL** — order terbaru EO |
 | GET | `/terms-conditions` + alias `/api/terms-conditions` | ⚠️ content, ✅ public | `LegalService` hardcoded (kini kaya: slug/version/sections) — FIXED PR #25, verified live 200 |
 | GET | `/privacy-policy` + alias `/api/privacy-policy` | ⚠️ content, ✅ public | Sama — FIXED PR #25, verified live 200 |
 
@@ -1451,6 +1484,7 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 | GET | `/api/admin/eo-applications/{id}` | ✅ | Detail via `organizerRepository.findById` |
 | PATCH | `/api/admin/eo-applications/{id}/status` | ✅ | VERIFIED/REJECTED + `rejectionReason` + audit; VERIFIED juga update `users.role` → ORGANIZER |
 | GET | `/api/admin/eo-applications/{id}/documents/company-deed` | ✅ | Return `{documentUrl}` dari kolom akta organizer |
+| GET | `/api/admin/eo-applications/{id}/documents/company-deed/download` | ✅ | **BARU rev.14** — file akta download langsung (utk verifikasi) |
 
 ### Admin Settings — ✅ 6/6 (3 dari merge `4836263` + 3 extension baru)
 
@@ -1474,78 +1508,83 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 
 > **Catatan payout:** tidak ada entity `Payout` terpisah — pakai `RefundRequestEntity` (tabel `refund_requests`). Sejak PR #24 `submitRefund()` selalu isi `organizerId` (real dari event, fallback = customerId) → filter `organizerId IS NOT NULL` **tak lagi memisahkan** refund vs payout. Perlu discriminator baru (mis. kolom `type`, atau payout = baris dengan `orderId IS NULL` karena `createPayout` EO tak set orderId).
 
-### Admin Event Management — ✅ 8/8
+### Admin Event Management — ✅ 10/10 (rev.14)
 
 | Method | Endpoint | Status | Controller/Service |
 |---|---|---|---|
-| GET | `/api/admin/events[?status=&category=&organizerId=&dateFrom=&dateTo=&search=&page=0&size=20]` | ✅ | `AdminEventController` → `AdminEventService` (Specification filter + pagination) |
+| GET | `/api/admin/events[?status=&category=&...]` | ✅ | `AdminEventController` → `AdminEventService` (Specification filter + pagination) |
 | GET | `/api/admin/events/{id}` | ✅ | Detail + `TierInfo[]` + `SalesSummary` |
-| POST | `/api/admin/events` | ✅ | Create via `CreateEventRequest` + audit `CREATE_EVENT` |
-| PUT | `/api/admin/events/{id}` | ✅ | Update via `CreateEventRequest` + audit `UPDATE_EVENT` |
-| PATCH | `/api/admin/events/{id}/status` | ✅ | Status update (DRAFT/PUBLISHED/CANCELLED/DELETED) + audit |
+| POST | `/api/admin/events` | ✅ | **Multipart (rev.14)** — `event` (CreateEventRequest @Valid) + `file`? → langsung **PUBLISHED** + persist tiers + audit `CREATE_EVENT` |
+| PUT | `/api/admin/events/{id}` | ✅ | **Multipart (rev.14)** — `event` + `file`? + audit `UPDATE_EVENT` |
+| PATCH | `/api/admin/events/{id}/status` | ✅ | Status update (transisi ketat). **No-op jika status sama** → 200. Body (`AdminEventStatusRequest`, `@Valid`): `status`, `rejectionReason` (opsional) |
+| PATCH | `/api/admin/events/{id}/publish` | ✅ | **BARU rev.14** — publish DRAFT/PENDING_APPROVAL → `PUBLISHED` langsung (tanpa check tier) |
+| PATCH | `/api/admin/events/{id}/approve` | ✅ | **BARU rev.14** — approve event EO (`PENDING_APPROVAL` → `PUBLISHED`) |
+| PATCH | `/api/admin/events/{id}/reject` | ✅ | **BARU rev.14** — tolak event EO (`PENDING_APPROVAL` → `REJECTED`) |
 | DELETE | `/api/admin/events/{id}` | ✅ | Soft delete (status → DELETED) + audit `DELETE_EVENT` |
 | GET | `/api/admin/events/{id}/sales` | ✅ | `AdminEventSalesResponse` (totalOrders, ticketsSold, revenuePaid/Pending, salesByTier) |
 | GET | `/api/admin/events/export[?status=&category=&...]` | ✅ | CSV binary download (`Content-Disposition: attachment`) |
 
-**Filter query params (semua opsional):** `status` (DRAFT/PUBLISHED/CANCELLED/DELETED), `category` (MUSIC_FESTIVAL/SEMINAR/etc.), `organizerId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `search` (keyword title/description/venue).
+**Filter query params (semua opsional):** `status` (DRAFT/PUBLISHED/PENDING_APPROVAL/REJECTED/CANCELLED/DELETED), `category` (MUSIC_FESTIVAL/SEMINAR/etc.), `organizerId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `search` (keyword title/description/venue).
+**Contoh curl multipart (rev.14):** `curl -b admin.txt -X POST localhost:8082/api/admin/events -F "event={"title":"X",...};type=application/json" -F "file=@banner.jpg"` — jangan kirim `application/json` polos.
 
-### Admin Ticket Management — ✅ 7/7
+### Admin Ticket Management — ✅ 7/7 (rev.14: status `REVOKED`/`CHECKED_IN`)
 
 | Method | Endpoint | Status | Controller/Service |
 |---|---|---|---|
 | GET | `/api/admin/tickets[?eventId=&status=&userId=&dateFrom=&dateTo=&page=0&size=20]` | ✅ | `AdminTicketController` → `AdminTicketService` (Specification + pagination) |
 | GET | `/api/admin/tickets/{id}` | ✅ | Detail tiket + customer info + event info |
-| POST | `/api/admin/tickets/generate` | ✅ | Generate tiket dari `order_attendees` (body: `{orderId}`) + audit |
-| PATCH | `/api/admin/tickets/{id}/revoke` | ✅ | Status → CANCELLED + audit `REVOKE_TICKET` |
-| PATCH | `/api/admin/tickets/{id}/checkin` | ✅ | checkInStatus → USED + checkInAt=now + audit `CHECKIN_TICKET` |
+| POST | `/api/admin/tickets/generate` | ✅ | `TicketService.generateTicketsForOrder` (idempotent; body: `{orderId}`) + audit |
+| PATCH | `/api/admin/tickets/{id}/revoke` | ✅ | checkInStatus → **`REVOKED`** + audit `REVOKE_TICKET` |
+| PATCH | `/api/admin/tickets/{id}/checkin` | ✅ | checkInStatus → **`CHECKED_IN`** + checkInAt=now + audit `CHECKIN_TICKET` |
 | GET | `/api/admin/tickets/inventory/{eventId}` | ✅ | Ringkasan kapasitas per tier (`{eventId,eventTitle,tiers:[],totalCapacity,totalSold}`) |
 | GET | `/api/admin/tickets/export[?eventId=&status=&dateFrom=&dateTo=]` | ✅ | CSV binary download |
 
-**Filter query params (semua opsional):** `eventId` (UUID), `status` (UNREDEEMED/USED/EXPIRED/REFUNDED), `userId` (UUID), `dateFrom`/`dateTo` (ISO datetime).
+**Filter query params (semua opsional):** `eventId` (UUID), `status` (UNREDEEMED/CHECKED_IN/REVOKED/EXPIRED/REFUNDED), `userId` (UUID), `dateFrom`/`dateTo` (ISO datetime).
 
-### Admin Transaction Management — ✅ 4/4
+### Admin Transaction Management — ✅ 4/4 (rev.14: transisi ketat)
 
 | Method | Endpoint | Status | Controller/Service |
 |---|---|---|---|
 | GET | `/api/admin/transactions[?status=&eventId=&userId=&dateFrom=&dateTo=&minAmount=&maxAmount=&page=0&size=20]` | ✅ | `AdminTransactionController` → `AdminTransactionService` (Specification + pagination) |
 | GET | `/api/admin/transactions/{id}` | ✅ | Detail transaksi (order, payment, customer info) |
-| PATCH | `/api/admin/transactions/{id}/status` | ✅ | Status update + validasi transisi + audit `UPDATE_TRANSACTION_STATUS` |
+| PATCH | `/api/admin/transactions/{id}/status` | ✅ | Status update + validasi transisi ketat + audit `UPDATE_TRANSACTION_STATUS` |
 | GET | `/api/admin/transactions/export[?status=&eventId=&userId=&...]` | ✅ | CSV binary download |
 
 **Filter query params (semua opsional):** `status` (PENDING/WAITING_PAYMENT/PAID/EXPIRED/CANCELLED/REFUNDED), `eventId`/`userId` (UUID), `dateFrom`/`dateTo` (ISO datetime), `minAmount`/`maxAmount` (BigDecimal).
 
-**Validasi transisi status transaksi:** PENDING/WAITING_PAYMENT → boleh ubah ke PAID/REFUNDED/CANCELLED/WAITING_PAYMENT; PAID → hanya bisa ke REFUNDED; REFUNDED/CANCELLED → tidak bisa diubah (`400 "Status transaksi tidak dapat diubah dari status [X]!"`).
+**Validasi transisi status transaksi (rev.14):** `PENDING → {WAITING_PAYMENT, CANCELLED, EXPIRED}`; `WAITING_PAYMENT → {PAID, CANCELLED, EXPIRED}`; `PAID + status==REFUNDED` → `REFUNDED`; kombinasi lain → `400`. CANCELLED/EXPIRED/REFUNDED memicu `handleExpiredOrCancelledOrder` (restore kuota).
 
 ---
 
 ## B. ENDPOINT YANG BELUM ADA (perlu dibuat)
 
-### B1. Events — ✅ ADA sebagai STUB (PR #25)
+### B1. Events — ✅ ADA sebagai STUB (PR #25, rev.14: dapat login, tak lagi publik)
 
-`POST /api/events/create` (publik, MOCK: random UUID + DRAFT, body diabaikan). Upgrade ke REAL perlu persist `events` + `ticket_tiers` (DTO `CreateEventRequest` sudah ada tapi belum dipakai).
+`POST /api/events/create` (sejak rev.14 butuh login — `SecurityConfig` permit GET-only; MOCK: random UUID + DRAFT, body diabaikan). Pembuatan event real: `POST /api/admin/events` (admin, multipart, langsung PUBLISHED) atau `POST /api/organizer/events` (EO, multipart, DRAFT). DTO `CreateEventRequest` **sekarang dipakai** sebagai `@RequestPart("event")` di admin/organizer events.
 
-### B2. Organizer Events — ✅ ADA sebagai STUB (PR #25, 6 endpoint MOCK)
+### B2. Organizer Events — ✅ SUDAH REAL (sejak PR #42 — bukan stub lagi)
 
-| Method | Endpoint | Kebutuhan |
+| Method | Endpoint | Status |
 |---|---|---|
-| GET | `/api/organizer/events` | List event milik EO |
-| POST | `/api/organizer/events` | Buat event baru |
-| PUT | `/api/organizer/events/update` | Update event |
-| POST | `/api/organizer/events/publish` | Publish event |
-| GET | `/api/organizer/events/draft` | Draft events |
-| GET | `/api/organizer/events/{id}/sales-summary` | Ringkasan penjualan |
+| GET | `/api/organizer/events` | ✅ REAL — list event milik EO |
+| POST | `/api/organizer/events` | ✅ REAL — multipart create (DRAFT + persist tiers) |
+| PUT | `/api/organizer/events/update` | ✅ REAL — multipart update (cek kepemilikan) |
+| POST | `/api/organizer/events/publish` | ✅ REAL — DRAFT → `PENDING_APPROVAL` |
+| GET | `/api/organizer/events/draft` | ✅ REAL — list DRAFT |
+| GET | `/api/organizer/events/{id}/sales-summary` | ✅ REAL — hitung dari orders |
+| POST | `/api/organizer/events/banner` | ✅ REAL — **BARU rev.14** |
 
-**Service baru:** `OrganizerEventService` — entity `OrganizerEvent`, repo `OrganizerEventRepository`
+Service: `OrganizerEventService` (`service/organizer/`) — memakai entity `Event`/`TicketTier` existing (BUKAN entity `OrganizerEvent` baru yang disarankan stub).
 
-### B3. Organizer Dashboard (3 endpoint — ✅ ADA sebagai STUB PR #25, MOCK zeros)
+### B3. Organizer Dashboard (3 endpoint — ✅ SUDAH REAL sejak PR #36/#40, bukan stub zeros)
 
-| Method | Endpoint | Kebutuhan |
+| Method | Endpoint | Status |
 |---|---|---|
-| GET | `/api/organizer/dashboard/metrics` | Metrics dari DB |
-| GET | `/api/organizer/dashboard/recent-events` | Event terbaru |
-| GET | `/api/organizer/dashboard/recent-transactions` | Transaksi terbaru |
+| GET | `/api/organizer/dashboard/metrics` | ✅ REAL |
+| GET | `/api/organizer/dashboard/recent-events` | ✅ REAL |
+| GET | `/api/organizer/dashboard/recent-transactions` | ✅ REAL |
 
-**Service baru:** `OrganizerDashboardService` — query dari `events`, `orders`, `ticket_items`
+Service: `OrganizerDashboardService` (`service/organizer/`) — query `events`, `orders`, `ticket_items` milik EO.
 
 ### B4. Admin EO Applications — ✅ SUDAH ADA (merge `4836263`)
 
@@ -1565,18 +1604,21 @@ export const getTransactions = () => apiGet('/transactions/history'); // → dat
 
 | # | Endpoint | Service | Yang perlu diubah |
 |---|---|---|---|
-| 1 | `POST /api/organizer/profile/upload-deed` | `OrganizerService.uploadDeed` | Tulis URL file ke `organizer.akta_perusahaan` (saat ini file tersimpan tapi kolom tak diupdate) |
-| 2 | `GET /organizer/payouts/detail?id=` | `OrganizerController.getPayoutDetail` | Ubah param `Long` → `String`/`UUID` agar UUID bisa di-bind (saat ini selalu jatuh ke mock) |
-| 3 | `POST /organizer/auth/logout` | `OrganizerService.logout` | Delegasikan ke `AuthService.logout` + hapus cookie (saat ini no-op) |
-| 4 | `POST /organizer/auth/change-password` | `OrganizerService.changePassword` | Kembalikan `400` eksplisit bila tanpa login/auth tak ada (saat ini silent no-op `200`) |
-| 5 | Fallback mock organizer | `OrganizerService` | Pertahankan flag `"mock":true` agar frontend bisa branching real-vs-mock |
-| 16 | `GET /api/refund/banks` | `RefundService` | Pindah ke tabel/konstanta DB bila perlu |
-| 17 | `GET /api/refund/order-summary` | `RefundService` | Query `orders` by `orderId` ganti hardcoded `290000.00` |
-| 18 | `GET /api/refund/refund-detail/download-proof` | `RefundService` | Tambah kolom `proof_url` di `RefundRequestEntity` atau return dari storage |
-| 19 | `POST /api/payments/midtrans-notification` | `PaymentController` | Update `orders.status` → PAID/EXPIRED/CANCELLED (saat ini log only) |
-| 20 | `GET /terms-conditions`, `GET /privacy-policy` | `LegalController`/`SecurityConfig` | Dual alias: root + `/api` prefix — FIXED |
+| 1 | `POST /api/organizer/profile/upload-deed` | `OrganizerProfileService.uploadDeed` | Tulis URL file ke `organizer.akta_perusahaan` (file tersimpan tapi kolom belum update) |
+| 2 | `GET /organizer/payouts/detail?id=` | `OrganizerPayoutService.getPayoutDetailByString` | ✅ **SELESAI rev.14** — param kini `String` UUID + cek kepemilikan (400/404/403 proper) |
+| 3 | `POST /organizer/auth/logout` | `OrganizerController` | Delegasikan ke `AuthService.logout` + hapus cookie (saat ini no-op) |
+| 4 | `POST /organizer/auth/change-password` | `OrganizerController` | Kembalikan `400` eksplisit bila tanpa login/auth tak ada (saat ini silent no-op `200`) |
+| 5 | Fallback mock organizer | `OrganizerService` + `service/organizer/*` | Pertahankan flag `"mock":true` agar frontend bisa branching real-vs-mock |
+| 16 | `GET /api/refund/banks` | `RefundController` | Pindah ke tabel/konstanta DB bila perlu |
+| 17 | `GET /api/refund/order-summary` | `RefundController` | ✅ SALES done — kini query `orders` real (fallback mock `295000` bila order tak ada) |
+| 18 | `GET /api/refund/refund-detail/download-proof` | `RefundController` | Tambah kolom `proof_url` di `RefundRequestEntity` atau return dari storage |
+| 19 | `POST /api/payments/midtrans-notification` | `PaymentController` | ✅ **SELESAI rev.14** — verifikasi SHA-512 + update `orders.status` PAID/CANCELLED/EXPIRED + auto generate tiket + restore kuota + email |
+| 20 | `GET /terms-conditions`, `GET /privacy-policy` | `LegalController`/`SecurityConfig` | ✅ **FIXED** — dual alias + permitAll (public verified live 200) |
 | 21 | `GET /api/admin/payouts` (+ discriminator) | `AdminPayoutService` | Tambah kolom/filter pemisah refund vs payout (`organizerId IS NOT NULL` tak mempan) |
-| 22 | `POST /api/user/avatar` | `UserController` | Simpan file ke `uploads/avatars/` ganti mock URL |
+| 22 | `POST /api/user/avatar` | `UserController` | ✅ **SELESAI rev.13** — file tersimpan `uploads/avatars/` + diserve `WebConfig` |
+| 23 | `POST /api/events/create` | `EventController` | ✅ TIDAK lagi publik (rev.14); tetap stub no-op — hapus atau ganti admin/EO events |
+| 24 | `GET /api/checkout/initiate` kuota | `OrderService` | ✅ **SELESAI rev.14** — kuota dikurangi + restore saat EXPIRED/CANCELLED |
+| 25 | `GET /api/tickets/my-tickets` | `TicketController`/`JwtAuthenticationFilter` | ⚠️ Bug potensial: `getName()` = userId (UUID) bukan email → query `findByOrderCustomerEmail...` kosong. Fix: subject JWT = email, atau query pakai customerId |
 
 > `GET /api/tickets/refund/refund-history` **TIDAK perlu upgrade** — sudah REAL (`findByCustomerId`). `PaymentService.processPaymentCharge()` **dead code** — tak dipanggil `PaymentController` (langsung `MidtransService`), boleh hapus atau biarkan.
 
@@ -1589,13 +1631,19 @@ src/main/java/com/example/eventday/
 ├── controller/
 │   ├── AuthController.java           # /api/auth/*
 │   ├── CheckoutController.java       # /api/checkout/*, /api/orders/*
-│   ├── EventController.java          # /api/events/* + POST /create (MOCK publik, body diabaikan; CreateEventRequest belum dipakai)
+│   ├── EventController.java          # /api/events/* GET publik; POST /create (MOCK, tak lagi publik rev.14; CreateEventRequest dipakai @RequestPart admin/EO events)
 │   ├── HomeSearchController.java     # /api/home/*, /api/search/*
 │   ├── LegalController.java          # /terms-conditions|/privacy-policy + alias /api/* — FIXED rev.13 (publik, konten hardcoded kaya)
-│   ├── OrganizerController.java      # base /api/organizer (BREAKING rev.13): 29 endpoint = 18 hybrid + 11 mock
-│   ├── PaymentController.java        # /api/payments/* (charge Bearer REAL Snap + notification PUBLIK log-only rev.13)
+│   ├── organizer/                    # ✅ REV.14: OrganizerController dipecah jadi 6 controller (30 endpoint, base /api/organizer)
+│   │   ├── OrganizerController.java        # register, documents/upload, status, dashboard, auth/change-password, auth/logout
+│   │   ├── OrganizerProfileController.java # GET/PUT profile, avatar, upload-portfolio, upload-deed, document
+│   │   ├── OrganizerDashboardController.java # GET /dashboard, /metrics, /recent-events, /recent-transactions (REAL)
+│   │   ├── OrganizerEventController.java  # GET/POST/PUT events (multipart REAL), publish, draft, sales-summary, /banner (BARU)
+│   │   ├── OrganizerRefundController.java # GET refunds/detail, PATCH {id}/status
+│   │   └── OrganizerPayoutController.java # bank-accounts, events/{id}/payout-balance, payouts GET/POST, payouts/detail (String UUID)
+│   ├── PaymentController.java        # base /api/payments + /api/v1/payments: charge Bearer REAL Snap; notification PUBLIK + REAL (rev.14: SHA-512, PAID+auto ticket, cancel/expire restore kuota)
 │   ├── RefundController.java           # base /api (BREAKING rev.13): 7 path — submit/detail/history/order-summary REAL, banks MOCK, download-proof partial
-│   ├── TicketController.java         # /api/tickets/* (3 path, 4 dengan alias my-tickets)
+│   ├── TicketController.java         # /api/tickets/* (3 path rev.14: my-tickets auth-based, issued-detail anti-IDOR, scan ADMIN/ORGANIZER)
 │   ├── UserController.java           # /api/user/*, /api/account/*, /api/transactions/* (avatar REAL rev.13)
 │   ├── WebConfig.java                # NEW rev.13: serve /uploads/** + /uploads/logos/** dari disk
 │   ├── HomeController.java           # /
@@ -1603,24 +1651,32 @@ src/main/java/com/example/eventday/
 │       ├── AdminDashboardController.java  # /admin/dashboard/* (3)
 │       ├── AdminUserController.java       # /api/admin/users/* (4)
 │       ├── AdminSettingsController.java   # /api/admin/audit-logs*, /api/admin/settings/* (6: 3 lama + export/export-csv/upload-logo baru)
-│       ├── AdminEoController.java         # /api/admin/eo-applications/* (4, merge 4836263)
+│       ├── AdminEoController.java         # /api/admin/eo-applications/* (4 + company-deed/download baru rev.14)
 │       ├── AdminPayoutController.java     # /api/admin/payouts/* (4, committed PR #24)
-│       ├── AdminEventController.java      # /api/admin/events/* (8: list/detail/create/update/status/delete/sales/export)
+│       ├── AdminEventController.java      # /api/admin/events/* (10 rev.14: list/detail/create/update multipart + status/approve/reject/delete/sales/export)
 │       ├── AdminTicketController.java     # /api/admin/tickets/* (7: list/detail/generate/revoke/checkin/inventory/export)
 │       └── AdminTransactionController.java # /api/admin/transactions/* (4: list/detail/status/export)
 ├── service/
 │   ├── AuthService.java
 │   ├── EventService.java
 │   ├── HomeSearchService.java
-│   ├── OrderService.java
+│   ├── OrderService.java             # createOrder kuota DIKURANGI + handleExpiredOrCancelledOrder restore (rev.14)
 │   ├── PaymentService.java           # getCheckoutSummary REAL; processPaymentCharge DEAD CODE (tak dipanggil)
 │   ├── MidtransService.java          # Midtrans Snap gateway REAL (dipanggil PaymentController langsung)
-│   ├── TicketService.java            # generateTicket() tak dipanggil siapapun
+│   ├── TicketService.java            # generateTicketsForOrder (REAL, idempotent — dipanggil webhook/admin/PaymentService) + getIssuedDetail + validateAndUseTicket
+│   ├── FileStorageService.java       # ✅ REV.14 BARU: saveImage validasi PNG/JPG/JPEG/WEBP/GIF ≤5MB → uploads/<subfolder> → URL relative /uploads/...
 │   ├── UserService.java
 │   ├── EmailService.java
 │   ├── AuditLogService.java
 │   ├── LegalService.java             # hardcoded kaya slug/version/sections/HTML (MOCK content, rev.13)
-│   ├── OrganizerService.java         # 638 baris HYBRID DB + mock fallback (PR #21); 9 stub baru tak pakai service (controller langsung)
+│   ├── OrganizerService.java         # PVC ~128 baris rev.14 (PR #37) — registrasi/documents/status/auth; logika events/dashboard dipecah ke service/organizer/
+│   ├── organizer/                    # ✅ REV.14 BARU (domain organizer)
+│   │   ├── OrganizerHelperService.java     # currentUserId, resolveOrganizer, saveFile
+│   │   ├── OrganizerProfileService.java    # profile/update/upload/(deed partial)
+│   │   ├── OrganizerDashboardService.java  # metrics/recent-events/recent-transactions REAL
+│   │   ├── OrganizerEventService.java      # events CRUD REAL + uploadBanner (PR #42)
+│   │   ├── OrganizerRefundService.java     # refunds milik EO
+│   │   └── OrganizerPayoutService.java     # bank-accounts/balance/payouts/create/detail (getPayoutDetailByString — fix rev.14)
 │   ├── RefundService.java            # submit/detail/history/order-summary REAL (2 terakhir baru PR #24); banks MOCK; download-proof partial
 │   └── admin/
 │       ├── AdminDashboardService.java
@@ -1628,9 +1684,9 @@ src/main/java/com/example/eventday/
 │       ├── AdminSettingsService.java     # + exportAuditLogs/exportCsv/uploadLogo (PR #24)
 │       ├── AdminEoService.java           # pakai Organizer entity (merge 4836263)
 │       ├── AdminPayoutService.java       # committed PR #24 — via RefundRepository + OrganizerRepository
-│       ├── AdminEventService.java        # CRUD + sales + export + Specification filter (Phase 1)
-│       ├── AdminTicketService.java       # ticket management + inventory + export (Phase 1)
-│       └── AdminTransactionService.java  # transaction management + status validation + export (Phase 1)
+│       ├── AdminEventService.java        # CRUD + sales + export + Specification filter + approve/reject + transisi status ketat (rev.14)
+│       ├── AdminTicketService.java       # ticket management (revoke→REVOKED, checkin→CHECKED_IN) + inventory + export (rev.14)
+│       └── AdminTransactionService.java  # transaction management + transisi ketat + export (rev.14)
 ├── entity/
 │   ├── User.java, Auth.java, Otp.java, Organizer.java, Event.java
 │   ├── TicketTier.java, Booking.java, Order.java, TicketItem.java
@@ -1664,21 +1720,16 @@ src/main/java/com/example/eventday/
 
 ## E. SERVICES — SUDAH ADA vs PERLU BARU
 
-**SUDAH ADA (jangan buat ulang):** `AdminEoService`, `AdminPayoutService`, `AdminSettingsService` (+ `AdminDashboardService`, `AdminUserService`). **Phase 1 BARU:** `AdminEventService`, `AdminTicketService`, `AdminTransactionService` + `CsvUtil`.
+**SUDAH ADA (jangan buat ulang):** `AdminEoService`, `AdminPayoutService`, `AdminSettingsService` (+ `AdminDashboardService`, `AdminUserService`). **Phase 1 BARU:** `AdminEventService`, `AdminTicketService`, `AdminTransactionService` + `CsvUtil`. **Rev.14 BARU:** `service/organizer/*` (6 service) + `FileStorageService`.
 
 | Service | Path | Status |
 |---|---|---|
-| `OrganizerEventService` | `service/OrganizerEventService.java` | ❌ BELUM — CRUD event milik EO |
-| `OrganizerDashboardService` | `service/OrganizerDashboardService.java` | ❌ BELUM — metrics EO dari DB |
+| `OrganizerEventService` | `service/organizer/OrganizerEventService.java` | ✅ **ADA rev.14 (PR #42)** — CRUD event milik EO REAL (multipart) |
+| `OrganizerDashboardService` | `service/organizer/OrganizerDashboardService.java` | ✅ **ADA rev.14 (PR #36/#40)** — metrics EO dari DB |
 
 ## F. ENTITIES/DTOs/REPOS — SUDAH ADA vs PERLU BARU
 
-**SUDAH ADA:** `PayoutResponse`, `PayoutDetailResponse`, `UpdatePayoutStatusRequest`, `AuditLogExportResponse` (DTO payout/export baru); `AdminEoApplicationResponse`, `AdminEoStatusRequest`, `AdminSettingsRequest`, `AdminDashboardMetricsResponse`, `AdminUserListItemResponse`, `AdminUserStatusRequest`. **Phase 1 BARU:** `AdminEventRequest`, `AdminEventResponse`, `AdminEventListResponse`, `AdminEventStatusRequest`, `AdminEventSalesResponse`, `AdminTicketResponse`, `AdminTicketListResponse`, `AdminTicketGenerateRequest`, `AdminTransactionResponse`, `AdminTransactionListResponse`, `AdminTransactionStatusRequest`. **TIDAK ADA dan JANGAN BUAT:** `EoApplication` entity, `Payout` entity, `AdminSettings` entity (pakai `Organizer` / `RefundRequestEntity` / `Settings` yang sudah ada).
-
-| Item | Path | Status |
-|---|---|---|
-| `OrganizerEvent` | `entity/OrganizerEvent.java` | ❌ BELUM |
-| `OrganizerEventRepository` | `repository/OrganizerEventRepository.java` | ❌ BELUM |
+**SUDAH ADA:** `PayoutResponse`, `PayoutDetailResponse`, `UpdatePayoutStatusRequest`, `AuditLogExportResponse` (DTO payout/export baru); `AdminEoApplicationResponse`, `AdminEoStatusRequest`, `AdminSettingsRequest`, `AdminDashboardMetricsResponse`, `AdminUserListItemResponse`, `AdminUserStatusRequest`. **Phase 1 BARU:** `AdminEventRequest`(→`CreateEventRequest` dipakai @RequestPart), `AdminEventResponse`, `AdminEventListResponse`, `AdminEventStatusRequest`, `AdminEventSalesResponse`, `AdminTicketResponse`, `AdminTicketListResponse`, `AdminTicketGenerateRequest`, `AdminTransactionResponse`, `AdminTransactionListResponse`, `AdminTransactionStatusRequest`. **TIDAK ADA dan JANGAN BUAT:** `EoApplication` entity, `Payout` entity, `AdminSettings` entity, `OrganizerEvent` entity, `OrganizerEventRepository` entity (pakai `Event`/`TicketTier` + `service/organizer/` yang sudah ada).
 
 ---
 
@@ -1687,28 +1738,30 @@ src/main/java/com/example/eventday/
 Anda akan membuat PDF dokumentasi lengkap berdasarkan isi file ini. Ikuti aturan berikut:
 
 ## Struktur PDF yang Harus Dibuat
-1. **Halaman Sampul** — Judul "Laporan Audit Status API & Gap Analysis Eventday", tanggal audit 15 September 2026, workspace D:\eventday
+1. **Halaman Sampul** — Judul "Laporan Audit Status API & Gap Analysis Eventday", tanggal audit 21 September 2026, workspace D:\eventday
 2. **Ringkasan Eksekutif** — Total endpoint aktif, persentase per modul
 3. **REKAPITULASI PER MODUL** — Tabel status per modul (sesuai §A di atas)
-4. **DAFTAR RINCI STATUS 98 ENDPOINT** — Setiap endpoint dengan status SUDAH ADA / BELUM ADA / DIHAPUS / MOCK (sumber utama: **§17**, bukan §A)
-5. **PERMINTAAN BARU TIM UI/UX** — Yang masih BELUM (REAL): persist `events/create`, persist 6 `organizer/events`, persist 3 `dashboard` EO; yang SUDAH ADA (stub/MOCK): ketiga itu + Admin Payouts (4) + Settings extension (3) + EO (4) + Organizer hybrid (18)
+4. **DAFTAR RINCI STATUS 110 ENDPOINT** — Setiap endpoint dengan status SUDAH ADA / BELUM ADA / DIHAPUS / MOCK (sumber utama: **§17**, bukan §A)
+5. **PERMINTAAN BARU TIM UI/UX** — Yang sudah ADA & REAL: Admin Module 39 endpoint, Organizer 30 endpoint (events+dashboard DB REAL), Webhook Midtrans real + auto tiket; yang SUDAH ADA (stub/MOCK): `POST /api/events/create` (stub), `upload-deed` partial, `organizer/auth/logout` stub; yang perlu fix: `my-tickets` getName=UUID
 6. **Catatan Sinkronisasi Kode** — Fakta-fakta teknis yang berlaku
 
-## Aturan Penting (JANGAN LUPA — VERIFIKASI 2026-09-16, HEAD `d75de2b` + uncommitted payout/settings)
+## Aturan Penting (JANGAN LUPA — VERIFIKASI 2026-09-21, HEAD `4680644` + uncommitted multipart)
 - **AdminSettings & AdminEo SUDAH ADA di main** (merge commit `4836263`). Jangan bilang "belum ada" atau "di branch lain"
-- **Admin Payouts (4) + Settings extension (3) SUDAH ADA** (uncommitted, siap commit): `AdminPayoutController`, `export/export-csv/upload-logo`
+- **Admin Payouts (4) + Settings extension (3) SUDAH ADA** (committed): `AdminPayoutController`, `export/export-csv/upload-logo`
 - **`AdminEoService` pakai `Organizer` entity** (bukan `EoApplication` terpisah). `OrganizerRepository.findByVerificationStatus()` digunakan (PR #21)
-- **Refund history** (`GET /tickets/refund/refund-history`) **REAL** — queries `refundRepository.findByCustomerId()` via `@Query`. Jangan bilang MOCK
-- **Refund banks** (`GET /api/refund/banks`) **MOCK** — hardcoded BCA/MANDIRI/BNI/BRI. Jangan bilang REAL
-- **Refund download-proof** endpoint **REAL** — tapi `proofUrl` selalu `""` karena `RefundRequestEntity` tak punya field `proofUrl` (hanya `RefundDetailResponse` punya)
+- **Refund history** (`GET /tickets/refund/refund-history`) **REAL** — `refundRepository.findByCustomerId()` via `@Query`. Jangan bilang MOCK
+- **Refund banks** (`GET /api/refund/banks`) **MOCK** — hardcoded 8 bank + logoUrl. Jangan bilang REAL
+- **Refund download-proof** endpoint **REAL** — tapi `proofUrl` selalu `""` karena `RefundRequestEntity` tak punya field `proofUrl`
 - **Refund order-summary** kini **REAL** (hitung dari order; fallback mock 295rb bila order tak ada). Jangan bilang MOCK-hardcoded-290rb
-- **Midtrans Snap REAL** — `POST /api/payments/charge` return `{snapToken, redirectUrl}` via `MidtransService`. Bukan mock VA. `midtrans-notification` log-only. `PaymentService.processPaymentCharge()` dead code
+- **Midtrans Snap REAL** — `POST /api/payments/charge` return `{snapToken, redirectUrl}` via `MidtransService`. **`midtrans-notification` kini REAL (rev.14)** — verifikasi SHA-512, PAID → auto `generateTicketsForOrder` + email, cancel/deny/expire → CANCELLED/EXPIRED + restore kuota, idempotent. Jangan bilang log-only. `PaymentService.processPaymentCharge()` dead code
 - **LegalController FIXED (rev.13)** — dual alias + permitAll 4 path → **publik, verified live 200**. `LegalService` tetap hardcoded (slug/version/sections)
-- **OrganizerService HYBRID + stub** (rev.13) — 18 DB-backed + mock fallback berflag + 11 mock (9 stub baru PR #25 + `auth/logout` + `payouts/detail`). Base `/api/organizer` (BREAKING)
-- Payment `GET /payments/methods` dan `GET /payments/methods/virtual-account` sudah **DIHAPUS** (🗑️); DTO `PaymentChargeRequest/Response` stale; `PaymentService.processPaymentCharge()` dead code
-- `EoApplication.java` / `Payout.java` / `AdminSettings.java` **TIDAK ADA** sebagai entity terpisah — jangan buat
+- **Organizer rev.14** — 6 controller (`controller/organizer/`) + 6 service (`service/organizer/`), base `/api/organizer`, **events & dashboard REAL DB**, banner upload barU; `OrganizerService` ±128 baris (bukan 638)
+- **Admin Event create/update = multipart** (`event` JSON + `file`); approve/reject event EO; transisi status event ketat. **Ticket scan wajib ADMIN/ORGANIZER**; `my-tickets` auth-based
+- **Kuota tiket dikurangi saat initiate + dikembalikan saat CANCELLED/EXPIRED**
+- Payment `GET /payments/methods` dan `GET /payments/methods/virtual-account` sudah **DIHAPUS** (🗑️); DTO `PaymentChargeRequest/Response` stale
+- `EoApplication.java` / `Payout.java` / `AdminSettings.java` / `OrganizerEvent.java` **TIDAK ADA** sebagai entity terpisah — jangan buat
 - `rejectionReason` di EO status **opsional** (bukan wajib saat REJECTED)
-- Total: **98 path unik — 79 REAL** (18 hybrid organizer), **17 MOCK, 2 PARTIAL**, 0 BUG (legal fixed), 4 table-sharing risk (subset Payout — catatan: `organizerId` kini selalu terisi/fallback customerId, jadi filter `IS NOT NULL` tak lagi memisahkan; perlu discriminator lebih cerdas)
+- ⚠️ Uncommitted (belum commit): `AdminEventController/Service`, `OrganizerEventController/Service`, `FileStorageService`, 3 file `uploads/event-banners/`
 
 ## Format PDF
 - Gunakan library PDF Java atau generate via Markdown → PDF
@@ -1738,4 +1791,14 @@ Anda akan membuat PDF dokumentasi lengkap berdasarkan isi file ini. Ikuti aturan
 > 14. **BREAKING**: `RefundController` `/api`→`/api/v1`, `OrganizerController` `/organizer`→`/api/organizer` (path lama → `500`)
 > 15. Baru: `POST /api/events/create` (MOCK publik!), 9 stub organizer, `midtrans-notification` publik, avatar REAL, `order-summary` REAL, `submitRefund` selalu isi `organizerId`, `WebConfig /uploads/**`
 > 16. Total: 86 → **98 path (79 REAL / 17 MOCK / 2 PARTIAL)**; B1/B2/B3 → ADA-sebagai-stub
+>
+> Tambahan rev.14 (PR #35-43 → HEAD `4680644` + uncommitted, 21 Sep 2026):
+> 17. **Webhook Midtrans REAL** — bukan log-only: verifikasi signature SHA-512, `settlement/capture` → `PAID` + auto `generateTicketsForOrder` + email konfirmasi; `cancel/deny/expire` → `CANCELLED`/`EXPIRED` + restore kuota; idempotent; alias `/api/v1/payments/**`
+> 18. **Kuota tiket DIKURANGI** saat `checkout/initiate` (anti-overselling) + restore saat EXPIRED/CANCELLED (`OrderService.handleExpiredOrCancelledOrder`)
+> 19. **Organizer events & dashboard REAL DB** — 6 controller baru (`controller/organizer/`), 6 service (`service/organizer/`), `OrganizerService` 128 baris; `POST /api/organizer/events/banner` baru; publish → `PENDING_APPROVAL`
+> 20. **Admin events multipart** + `PATCH approve/reject` event EO + `company-deed/download`; **ticket revoke→REVOKED / checkin→CHECKED_IN**; **transisi transaksi ketat** (PENDING→{WAITING_PAYMENT,CANCELLED,EXPIRED}, WAITING_PAYMENT→{PAID,CANCELLED,EXPIRED}, PAID→REFUNDED)
+> 21. **Ticket API dirombak** — `GET /api/tickets/user/{email}` DIHAPUS; `my-tickets` auth-based; `scan` wajib ADMIN/ORGANIZER; `issued-detail` anti-IDOR
+> 22. **`SecurityConfig`** — hanya `GET /api/events/**` publik (create MOCK butuh login), `GET /uploads/**` permitAll, scan → `hasAnyRole(ADMIN,ORGANIZER)`
+> 23. **`FileStorageService` BARU** (PNG/JPG/JPEG/WEBP/GIF ≤5MB); `payouts/detail` param String UUID → REAL (400/404/403 proper); Mailtrap creds baru
+> 24. ⚠️ Bug terdeteksi: `JwtAuthenticationFilter` principal = userId (UUID) → `GET /api/tickets/my-tickets` query email jadi kosong (lihat §14/§C-25)
 

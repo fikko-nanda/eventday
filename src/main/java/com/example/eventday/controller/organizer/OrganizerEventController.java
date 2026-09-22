@@ -4,6 +4,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.example.eventday.dto.ApiResponse;
 import com.example.eventday.service.organizer.OrganizerEventService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,14 +24,18 @@ public class OrganizerEventController {
         return ResponseEntity.ok(ApiResponse.ok("Daftar event organizer berhasil diambil", eventService.getOrganizerEvents()));
     }
 
-    @PostMapping
-    public ResponseEntity<ApiResponse<Map<String, Object>>> createEvent(@RequestBody Map<String, Object> request) {
-        return ResponseEntity.status(201).body(ApiResponse.ok("Event berhasil dibuat", eventService.createEvent(request)));
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createEvent(
+            @RequestPart("event") Map<String, Object> request,
+            @RequestParam(value = "file", required = false) MultipartFile file) {
+        return ResponseEntity.status(201).body(ApiResponse.ok("Event berhasil dibuat", eventService.createEvent(request, file)));
     }
 
-    @PutMapping("/update")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> updateEvent(@RequestBody Map<String, Object> request) {
-        return ResponseEntity.ok(ApiResponse.ok("Event berhasil diperbarui", eventService.updateEvent(request)));
+    @PutMapping(value = "/update", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateEvent(
+            @RequestPart("event") Map<String, Object> request,
+            @RequestParam(value = "file", required = false) MultipartFile file) {
+        return ResponseEntity.ok(ApiResponse.ok("Event berhasil diperbarui", eventService.updateEvent(request, file)));
     }
 
     @PostMapping("/publish")

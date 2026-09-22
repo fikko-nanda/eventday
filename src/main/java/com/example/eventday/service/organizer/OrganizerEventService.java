@@ -6,6 +6,7 @@ import com.example.eventday.entity.TicketTier;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.TicketTierRepository;
+import com.example.eventday.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -28,9 +29,10 @@ public class OrganizerEventService {
     private final EventRepository eventRepository;
     private final OrderRepository orderRepository;
     private final TicketTierRepository ticketTierRepository;
+    private final FileStorageService fileStorageService;
 
     public Map<String, Object> uploadBanner(MultipartFile file) {
-        String url = helperService.saveFile(file, "event-banners");
+        String url = fileStorageService.saveImage(file, "event-banners");
         Map<String, Object> data = new HashMap<>();
         data.put("banner_url", url);
         data.put("file_name", file.getOriginalFilename());
@@ -59,9 +61,13 @@ public class OrganizerEventService {
     }
 
     @Transactional
-    public Map<String, Object> createEvent(Map<String, Object> payload) {
+    public Map<String, Object> createEvent(Map<String, Object> payload, MultipartFile bannerFile) {
         Organizer org = helperService.resolveCurrentOrganizer();
         UUID currentUid = helperService.currentUserId();
+
+        if (bannerFile != null && !bannerFile.isEmpty()) {
+            payload.put("banner_url", fileStorageService.saveImage(bannerFile, "event-banners"));
+        }
 
         LocalDateTime start = payload.get("startDate") != null || payload.get("start_date") != null
                 ? LocalDateTime.parse(String.valueOf(payload.getOrDefault("startDate", payload.get("start_date"))).replace(" ", "T"))
@@ -148,7 +154,7 @@ public class OrganizerEventService {
     }
 
     @Transactional
-    public Map<String, Object> updateEvent(Map<String, Object> payload) {
+    public Map<String, Object> updateEvent(Map<String, Object> payload, MultipartFile bannerFile) {
         Organizer org = helperService.resolveCurrentOrganizer();
         String idStr = String.valueOf(payload.getOrDefault("eventId", payload.getOrDefault("event_id", payload.get("id"))));
         if (idStr == null || "null".equals(idStr)) {
@@ -161,6 +167,10 @@ public class OrganizerEventService {
         // Ownership Validation
         if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
+        }
+
+        if (bannerFile != null && !bannerFile.isEmpty()) {
+            payload.put("banner_url", fileStorageService.saveImage(bannerFile, "event-banners"));
         }
 
         if (payload.containsKey("title")) event.setTitle((String) payload.get("title"));
@@ -202,7 +212,7 @@ public class OrganizerEventService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
         }
 
-        event.setStatus("PUBLISHED");
+        event.setStatus("PENDING_APPROVAL");
         event.setUpdatedAt(LocalDateTime.now());
         event.setUpdatedBy(helperService.currentUserId());
         Event saved = eventRepository.save(event);
@@ -211,7 +221,7 @@ public class OrganizerEventService {
         res.put("event_id", saved.getEventId().toString());
         res.put("title", saved.getTitle());
         res.put("status", saved.getStatus());
-        res.put("message", "Event berhasil dipublikasikan");
+        res.put("message", "Event berhasil dikirim untuk persetujuan admin");
         return res;
     }
 

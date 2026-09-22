@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,7 +32,10 @@ public class OrganizerHelperService {
 
     public UUID currentUserId() {
         try {
-            String uid = SecurityContextHolder.getContext().getAuthentication().getName();
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth == null) return null;
+            String uid = auth.getName();
+            if (uid == null || uid.isBlank()) return null;
             return UUID.fromString(uid);
         } catch (Exception e) {
             return null;
@@ -39,12 +43,21 @@ public class OrganizerHelperService {
     }
 
     public Organizer resolveCurrentOrganizer() {
-        UUID uid = currentUserId();
-        if (uid == null) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Autentikasi diperlukan");
         }
-        return organizerRepository.findByUserUserId(uid)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Akun tidak terdaftar sebagai Organizer"));
+        String uid = auth.getName();
+        if (uid == null || uid.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token tidak valid");
+        }
+        try {
+            UUID userId = UUID.fromString(uid);
+            return organizerRepository.findByUserUserId(userId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Akun tidak terdaftar sebagai Organizer"));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Format token tidak valid");
+        }
     }
 
     public String saveFile(MultipartFile file, String subfolder) {
