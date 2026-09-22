@@ -58,4 +58,9 @@ public class OrganizerEventController {
         Map<String, Object> data = eventService.uploadBanner(file);
         return ResponseEntity.ok(ApiResponse.ok("Banner event berhasil diunggah", data));
     }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getEventDetail(@PathVariable("id") UUID eventId) {
+        return ResponseEntity.ok(ApiResponse.ok("Detail event berhasil diambil", eventService.getEventDetailById(eventId)));
+    }
 }

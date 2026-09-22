@@ -25,5 +25,6 @@ public class AdminEventListResponse {
     private UUID organizerId;
     private String organizerName;
     private String bannerUrl;
+    private String facility;
     private LocalDateTime createdAt;
 }

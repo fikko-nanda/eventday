@@ -75,6 +75,30 @@ public class AdminPayoutService {
         return mapToDetailResponse(payout);
     }
 
+    @Transactional(readOnly = true)
+    public byte[] exportPayoutsCsv(String statusFilter) {
+        List<PayoutResponse> payouts = getAllPayouts(statusFilter);
+        StringBuilder csv = new StringBuilder();
+        csv.append("payoutId,organizerId,nameOrganizer,amount,bankName,accountNumber,accountHolder,status,rejectionReason,adminNote,createdAt,updatedAt,reconciliationDocumentUrl\n");
+        for (PayoutResponse p : payouts) {
+            csv.append(String.format("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s%n",
+                    p.getPayoutId(),
+                    p.getOrganizerId(),
+                    p.getNameOrganizer() == null ? "" : p.getNameOrganizer().replace(",", ";"),
+                    p.getAmount(),
+                    p.getBankName() == null ? "" : p.getBankName().replace(",", ";"),
+                    p.getAccountNumber() == null ? "" : p.getAccountNumber().replace(",", ";"),
+                    p.getAccountHolder() == null ? "" : p.getAccountHolder().replace(",", ";"),
+                    p.getStatus(),
+                    p.getRejectionReason() == null ? "" : p.getRejectionReason().replace(",", ";"),
+                    p.getAdminNote() == null ? "" : p.getAdminNote().replace(",", ";"),
+                    p.getCreatedAt(),
+                    p.getUpdatedAt(),
+                    p.getReconciliationDocumentUrl() == null ? "" : p.getReconciliationDocumentUrl().replace(",", ";")));
+        }
+        return csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     private PayoutResponse mapToResponse(RefundRequestEntity r) {
         return PayoutResponse.builder()
                 .payoutId(r.getRefundId())
@@ -89,6 +113,7 @@ public class AdminPayoutService {
                 .adminNote(r.getAdminNote())
                 .createdAt(r.getCreatedAt())
                 .updatedAt(r.getUpdatedAt())
+                .reconciliationDocumentUrl(r.getReconciliationDocumentUrl())
                 .build();
     }
 

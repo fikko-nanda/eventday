@@ -29,10 +29,7 @@ public class OrganizerDashboardService {
             Optional<Organizer> opt = organizerRepository.findByUserUserId(uid);
             if (opt.isPresent()) {
                 Organizer org = opt.get();
-                List<Event> allEvents = eventRepository.findAll();
-                List<Event> myEvents = allEvents.stream()
-                        .filter(e -> e.getOrganizer() != null && e.getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
-                        .collect(Collectors.toList());
+                List<Event> myEvents = eventRepository.findByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId());
                 long activeEvents = myEvents.stream().filter(e -> "PUBLISHED".equals(e.getStatus())).count();
 
                 double revenue = orderRepository.findAll().stream()

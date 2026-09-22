@@ -68,7 +68,7 @@ public class SecurityConfig {
                                 "/api/privacy-policy")
                         .permitAll()
 
-                        // Modul Events (Hanya GET yang publik)
+                        // Modul Events (Hanya GET yang publik) - hanya event PUBLISHED
                         .requestMatchers(HttpMethod.GET, "/api/events/**", "/api/v1/events/**").permitAll()
 
                         // Webhook & Charge Midtrans (Publik tanpa butuh token JWT)
@@ -76,6 +76,9 @@ public class SecurityConfig {
 
                         // Endpoint Scan Tiket (Admin / Organizer)
                         .requestMatchers("/api/tickets/scan", "/api/v1/tickets/scan").hasAnyRole("ADMIN", "ORGANIZER")
+
+                        // Modul Organizer - semua endpoint butuh role ORGANIZER atau ADMIN
+                        .requestMatchers("/api/organizer/**").hasAnyRole("ORGANIZER", "ADMIN")
 
                         // Modul Admin
                         .requestMatchers("/admin/**", "/api/admin/**", "/api/v1/admin/**").hasRole("ADMIN")

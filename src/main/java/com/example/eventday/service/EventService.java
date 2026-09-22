@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Collections;
 
 @SuppressWarnings("null")
 @Service
@@ -98,9 +99,9 @@ public class EventService {
                 .collect(Collectors.toList());
 
         // Mengambil teks paragraf langsung dari entity Event
-        String facilities = event.getFacility();
+        String facilities = event.getFacility() != null ? event.getFacility() : "";
 
-        List<EventDetailResponse.LineupItem> lineup = parseLineup(event.getLineup());
+        List<EventDetailResponse.LineupItem> lineup = event.getLineup() != null ? parseLineup(event.getLineup()) : Collections.emptyList();
 
         return EventDetailResponse.builder()
                 .id(event.getEventId().toString())
