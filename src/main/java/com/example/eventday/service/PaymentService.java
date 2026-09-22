@@ -4,14 +4,20 @@ import com.example.eventday.dto.*;
 import com.example.eventday.entity.Order;
 import com.example.eventday.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @SuppressWarnings("null")
@@ -19,27 +25,36 @@ public class PaymentService {
 
     private final OrderRepository orderRepository;
     private final TicketService ticketService;
+    private final EmailService emailService;
+    private final OrderService orderService;
+
+    @Value("${midtrans.server-key:}")
+    private String serverKey;
 
     @Transactional(readOnly = true)
     public CheckoutSummaryResponse getCheckoutSummary(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan"));
 
-        BigDecimal pricePerTicket = order.getTicketTier().getPrice();
-        BigDecimal subtotal = pricePerTicket.multiply(BigDecimal.valueOf(order.getQuantity()));
-        String orderNumber = "ORD-" + order.getOrderId().toString().substring(0, 8).toUpperCase();
+        BigDecimal pricePerTicket = (order.getTicketTier() != null && order.getTicketTier().getPrice() != null)
+                ? order.getTicketTier().getPrice() : BigDecimal.ZERO;
+        int quantity = order.getQuantity() != null ? order.getQuantity() : 0;
+        BigDecimal subtotal = pricePerTicket.multiply(BigDecimal.valueOf(quantity));
+        
+        // Gunakan Full UUID agar webhook Midtrans dapat mem-parse kembali ID dengan benar
+        String orderNumber = "ORD-" + order.getOrderId().toString();
 
         return CheckoutSummaryResponse.builder()
                 .orderId(order.getOrderId())
                 .orderNumber(orderNumber)
-                .eventTitle(order.getEvent().getTitle())
-                .ticketTierName(order.getTicketTier().getTierName())
-                .quantity(order.getQuantity())
+                .eventTitle(order.getEvent() != null ? order.getEvent().getTitle() : "-")
+                .ticketTierName(order.getTicketTier() != null ? order.getTicketTier().getTierName() : "-")
+                .quantity(quantity)
                 .pricePerTicket(pricePerTicket)
                 .subtotal(subtotal)
-                .adminFee(order.getAdminFee())
+                .adminFee(order.getAdminFee() != null ? order.getAdminFee() : BigDecimal.ZERO)
                 .discountAmount(BigDecimal.ZERO)
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO)
                 .expiredAt(order.getExpiredAt())
                 .build();
     }
@@ -58,7 +73,7 @@ public class PaymentService {
         order.setPaymentMethod(request.getPaymentMethod());
         orderRepository.save(order);
 
-        String orderNumber = "ORD-" + order.getOrderId().toString().substring(0, 8).toUpperCase();
+        String orderNumber = "ORD-" + order.getOrderId().toString();
 
         return PaymentChargeResponse.builder()
                 .orderId(order.getOrderId())
@@ -71,43 +86,110 @@ public class PaymentService {
                 .build();
     }
 
-    /**
-     * Memproses callback/webhook notifikasi pembayaran dari Midtrans.
-     * Mengubah status order menjadi PAID dan otomatis menerbitkan tiket ke database.
-     */
     @Transactional
     public void processMidtransNotification(Map<String, Object> payload) {
-        String orderIdStr = (String) payload.get("order_id");
-        String transactionStatus = (String) payload.get("transaction_status");
-        String fraudStatus = (String) payload.get("fraud_status");
-
-        if (orderIdStr == null) {
-            throw new IllegalArgumentException("Payload webhook tidak valid: order_id kosong");
+        if (payload == null || !payload.containsKey("order_id")) {
+            log.warn("Payload webhook Midtrans kosong atau tidak memiliki order_id");
+            return;
         }
 
-        if (orderIdStr.startsWith("ORD-")) {
-            orderIdStr = orderIdStr.replace("ORD-", "");
+        String orderIdStr = String.valueOf(payload.get("order_id"));
+        String statusCode = String.valueOf(payload.get("status_code"));
+        String grossAmount = String.valueOf(payload.get("gross_amount"));
+        String signatureKey = String.valueOf(payload.get("signature_key"));
+        String transactionStatus = String.valueOf(payload.get("transaction_status"));
+        String fraudStatus = String.valueOf(payload.get("fraud_status"));
+
+        log.info("Notifikasi Midtrans diterima untuk Order ID: {} dengan status: {}", orderIdStr, transactionStatus);
+
+        if ("null".equalsIgnoreCase(orderIdStr) || orderIdStr.isBlank()) {
+            log.warn("Payload webhook tidak valid: order_id kosong");
+            return;
         }
-        UUID orderId = UUID.fromString(orderIdStr);
 
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan dengan ID: " + orderId));
+        // Verifikasi Signature Key Midtrans
+        if (signatureKey != null && !"null".equalsIgnoreCase(signatureKey) && serverKey != null && !serverKey.isBlank()) {
+            String cleanKey = serverKey.trim();
+            String rawSignature = orderIdStr + statusCode + grossAmount + cleanKey;
+            String calculatedSignature = hashSha512(rawSignature);
 
-        boolean isSuccess = "settlement".equals(transactionStatus)
-                || ("capture".equals(transactionStatus) && "accept".equals(fraudStatus));
+            if (!calculatedSignature.equalsIgnoreCase(signatureKey)) {
+                log.warn("Peringatan Keamanan: Signature Webhook Midtrans tidak valid untuk Order ID: {}", orderIdStr);
+            }
+        }
+
+        // Hapus prefix "ORD-" agar mendapatkan String UUID utuh
+        String cleanUUIDStr = orderIdStr.replace("ORD-", "").trim();
+        UUID orderId;
+        try {
+            orderId = UUID.fromString(cleanUUIDStr);
+        } catch (IllegalArgumentException e) {
+            log.warn("Order ID dari Midtrans bukan UUID valid: {}", orderIdStr);
+            return;
+        }
+
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.warn("Order tidak ditemukan di DB dengan ID: {}. Notifikasi diabaikan.", orderIdStr);
+            return;
+        }
+
+        // Cek agar tidak memproses ulang transaksi yang sudah selesai/batal
+        if ("PAID".equalsIgnoreCase(order.getStatus())) {
+            log.info("Order ID {} sudah berstatus PAID. Notifikasi duplikat diabaikan.", orderIdStr);
+            return;
+        }
+
+        if ("CANCELLED".equalsIgnoreCase(order.getStatus()) || "EXPIRED".equalsIgnoreCase(order.getStatus())) {
+            log.info("Order ID {} sudah berstatus {}. Notifikasi diabaikan.", orderIdStr, order.getStatus());
+            return;
+        }
+
+        boolean isSuccess = "settlement".equalsIgnoreCase(transactionStatus)
+                || ("capture".equalsIgnoreCase(transactionStatus) && "accept".equalsIgnoreCase(fraudStatus));
 
         if (isSuccess) {
-            if (!"PAID".equals(order.getStatus())) {
-                order.setStatus("PAID");
-                order.setPaidAt(LocalDateTime.now());
-                orderRepository.save(order);
-
-                // Menerbitkan record tiket ke database ticket_items
-                ticketService.generateTicketsForOrder(order);
-            }
-        } else if ("cancel".equals(transactionStatus) || "expire".equals(transactionStatus) || "deny".equals(transactionStatus)) {
-            order.setStatus("CANCELLED");
+            order.setStatus("PAID");
+            order.setPaidAt(LocalDateTime.now());
             orderRepository.save(order);
+            log.info("Order ID {} resmi PAID", orderIdStr);
+
+            try {
+                // Generasi record tiket ke database
+                ticketService.generateTicketsForOrder(order);
+                log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
+
+                String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
+                        ? order.getCustomer().getEmail() : "";
+                String eventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
+                        ? order.getEvent().getTitle() : "Eventday Ticket";
+
+                if (!email.isBlank()) {
+                    emailService.sendOrderConfirmationEmail(email, orderIdStr, eventTitle, order.getQuantity());
+                }
+            } catch (Exception e) {
+                log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
+            }
+        } else if ("cancel".equalsIgnoreCase(transactionStatus) || "deny".equalsIgnoreCase(transactionStatus) || "expire".equalsIgnoreCase(transactionStatus)) {
+            order.setStatus("EXPIRED".equalsIgnoreCase(transactionStatus) ? "EXPIRED" : "CANCELLED");
+            orderService.handleExpiredOrCancelledOrder(order);
+            orderRepository.save(order);
+            log.info("Order ID {} dibatalkan/expired.", orderIdStr);
+        }
+    }
+
+    private String hashSha512(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-512");
+            byte[] messageDigest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            BigInteger no = new BigInteger(1, messageDigest);
+            StringBuilder hashtext = new StringBuilder(no.toString(16));
+            while (hashtext.length() < 128) {
+                hashtext.insert(0, "0");
+            }
+            return hashtext.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("Gagal melakukan hashing SHA-512", e);
         }
     }
 }

@@ -10,7 +10,18 @@ import java.util.UUID;
 
 @Repository
 public interface TicketItemRepository extends JpaRepository<TicketItem, UUID>, JpaSpecificationExecutor<TicketItem> {
+
     List<TicketItem> findByOrderCustomerUserIdOrderByCreatedAtDesc(UUID customerId);
+
     List<TicketItem> findByOrderCustomerEmailOrderByCreatedAtDesc(String email);
+
+    List<TicketItem> findByAttendeeEmailOrOrderCustomerEmailOrderByCreatedAtDesc(String attendeeEmail, String customerEmail);
+
+    // Query spesifik berdasarkan attendeeEmail (Case-Insensitive)
+    List<TicketItem> findByAttendeeEmailIgnoreCaseOrderByCreatedAtDesc(String attendeeEmail);
+
+    // Query pencarian fleksibel di kolom attendeeEmail ATAU order.customer.email (Case-Insensitive)
+    List<TicketItem> findByAttendeeEmailIgnoreCaseOrOrderCustomerEmailIgnoreCaseOrderByCreatedAtDesc(String attendeeEmail, String customerEmail);
+
     List<TicketItem> findByOrderOrderId(UUID orderId);
 }
