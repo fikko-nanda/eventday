@@ -19,7 +19,6 @@ import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.Collections;
 
 @SuppressWarnings("null")
 @Service
@@ -60,6 +59,13 @@ public class EventService {
                 .map(this::toCatalogItem)
                 .collect(Collectors.toList());
 
+        // Sort by price jika diminta
+        if ("price_asc".equalsIgnoreCase(sort)) {
+            items.sort(Comparator.comparing(EventCatalogResponse.EventItem::getPrice, Comparator.nullsLast(BigDecimal::compareTo)));
+        } else if ("price_desc".equalsIgnoreCase(sort)) {
+            items.sort(Comparator.comparing(EventCatalogResponse.EventItem::getPrice, Comparator.nullsLast(BigDecimal::compareTo)).reversed());
+        }
+
         return EventCatalogResponse.builder()
                 .content(items)
                 .page(eventPage.getNumber())
@@ -98,9 +104,7 @@ public class EventService {
                 .map(this::toTicketItem)
                 .collect(Collectors.toList());
 
-        // Mengambil teks paragraf langsung dari entity Event
         String facilities = event.getFacility() != null ? event.getFacility() : "";
-
         List<EventDetailResponse.LineupItem> lineup = event.getLineup() != null ? parseLineup(event.getLineup()) : Collections.emptyList();
 
         return EventDetailResponse.builder()
@@ -180,9 +184,8 @@ public class EventService {
             return Sort.by(Sort.Direction.DESC, "startDate");
         }
         return switch (sort.toLowerCase()) {
-            case "price_asc" -> Sort.by(Sort.Direction.ASC, "startDate");
-            case "price_desc" -> Sort.by(Sort.Direction.DESC, "startDate");
             case "date_asc" -> Sort.by(Sort.Direction.ASC, "startDate");
+            case "date_desc" -> Sort.by(Sort.Direction.DESC, "startDate");
             default -> Sort.by(Sort.Direction.DESC, "startDate");
         };
     }

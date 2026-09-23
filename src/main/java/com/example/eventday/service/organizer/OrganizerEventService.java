@@ -80,6 +80,13 @@ public class OrganizerEventService {
         Organizer org = helperService.resolveCurrentOrganizer();
         UUID currentUid = helperService.currentUserId();
 
+        // Validasi judul unik (case-insensitive)
+        String rawTitle = (String) payload.getOrDefault("title", "Untitled Event");
+        String title = rawTitle != null ? rawTitle.trim() : "Untitled Event";
+        if (eventRepository.existsByTitleIgnoreCase(title)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Judul event '" + title + "' sudah digunakan. Silakan gunakan judul lain.");
+        }
+
         if (bannerFile != null && !bannerFile.isEmpty()) {
             payload.put("banner_url", fileStorageService.saveImage(bannerFile, "event-banners"));
         }
@@ -93,20 +100,20 @@ public class OrganizerEventService {
                 : start.plusDays(1);
 
         Event event = Event.builder()
-                 .organizer(org)
-                 .title((String) payload.getOrDefault("title", "Untitled Event"))
-                 .description((String) payload.get("description"))
-                 .category((String) payload.getOrDefault("category", "Music"))
-                 .venueName((String) payload.getOrDefault("venue_name", payload.getOrDefault("venueName", "TBA")))
-                 .bannerUrl((String) payload.getOrDefault("banner_url", payload.get("bannerUrl")))
-                 .facility(payload.get("facilities") != null ? String.join(", ", (List<String>) payload.get("facilities")) : "")
-                 .lineup((String) payload.get("lineup"))
-                 .startDate(start)
-                 .endDate(end)
-                 .status("DRAFT")
-                 .isFeatured(false)
-                 .createBy(currentUid)
-                 .build();
+                .organizer(org)
+                .title(title)
+                .description((String) payload.get("description"))
+                .category((String) payload.getOrDefault("category", "Music"))
+                .venueName((String) payload.getOrDefault("venue_name", payload.getOrDefault("venueName", "TBA")))
+                .bannerUrl((String) payload.getOrDefault("banner_url", payload.get("bannerUrl")))
+                .facility(payload.get("facilities") != null ? String.join(", ", (List<String>) payload.get("facilities")) : "")
+                .lineup((String) payload.get("lineup"))
+                .startDate(start)
+                .endDate(end)
+                .status("DRAFT")
+                .isFeatured(false)
+                .createBy(currentUid)
+                .build();
 
         Event saved = eventRepository.save(event);
 
@@ -188,7 +195,15 @@ public class OrganizerEventService {
             payload.put("banner_url", fileStorageService.saveImage(bannerFile, "event-banners"));
         }
 
-        if (payload.containsKey("title")) event.setTitle((String) payload.get("title"));
+        // Validasi judul unik saat edit (mengecualikan event yang sedang diedit)
+        if (payload.containsKey("title")) {
+            String newTitle = String.valueOf(payload.get("title")).trim();
+            if (eventRepository.existsByTitleIgnoreCaseAndEventIdNot(newTitle, event.getEventId())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Judul event '" + newTitle + "' sudah digunakan oleh event lain.");
+            }
+            event.setTitle(newTitle);
+        }
+
         if (payload.containsKey("description")) event.setDescription((String) payload.get("description"));
         if (payload.containsKey("category")) event.setCategory((String) payload.get("category"));
         if (payload.containsKey("venueName")) event.setVenueName((String) payload.get("venueName"));

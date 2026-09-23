@@ -47,13 +47,13 @@ public class OrderService {
         TicketTier tier = ticketTierRepository.findById(request.getTierId())
                 .orElseThrow(() -> new IllegalArgumentException("Ticket tier tidak ditemukan"));
 
-        if (tier.getAvailableQuota() < request.getQuantity()) {
-            throw new IllegalStateException("Kuota tiket tidak mencukupi");
+        // [ATOMIC UPDATE & RACE CONDITION GUARD]: 
+        // Mengurangi kuota langsung di level database. Jika kuota < request.getQuantity(), 
+        // query mengembalikan 0 dan transaksi langsung dibatalkan (mencegah overselling).
+        int updated = ticketTierRepository.decrementAvailableQuota(request.getTierId(), request.getQuantity());
+        if (updated == 0) {
+            throw new IllegalStateException("Kuota tiket tidak mencukupi atau sedang dipesan pengguna lain");
         }
-
-        // [PERBAIKAN 1]: Potong kuota tiket di database saat order baru dibuat (Cegah Overselling)
-        tier.setAvailableQuota(tier.getAvailableQuota() - request.getQuantity());
-        ticketTierRepository.save(tier);
 
         BigDecimal subtotal = tier.getPrice().multiply(BigDecimal.valueOf(request.getQuantity()));
         BigDecimal totalAmount = subtotal.add(adminFee);
@@ -72,15 +72,13 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    // [PERBAIKAN 2]: Method pengembalian kuota tiket saat order EXPIRED atau CANCELLED
+    // [ATOMIC RESTORE]: Pengembalian kuota tiket secara atomik saat order EXPIRED atau CANCELLED
     @Transactional
     public void handleExpiredOrCancelledOrder(Order order) {
         if ("EXPIRED".equalsIgnoreCase(order.getStatus()) || "CANCELLED".equalsIgnoreCase(order.getStatus())) {
             log.info("Mengembalikan kuota tiket sebanyak {} untuk Order ID: {}", order.getQuantity(), order.getOrderId());
-            TicketTier tier = order.getTicketTier();
-            if (tier != null) {
-                tier.setAvailableQuota(tier.getAvailableQuota() + order.getQuantity());
-                ticketTierRepository.save(tier);
+            if (order.getTicketTier() != null && order.getQuantity() != null) {
+                ticketTierRepository.incrementAvailableQuota(order.getTicketTier().getTierId(), order.getQuantity());
             }
         }
     }

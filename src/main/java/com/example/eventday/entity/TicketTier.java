@@ -35,6 +35,10 @@ public class TicketTier {
     @Column(name = "available_quota", nullable = false)
     private Integer availableQuota;
 
+    @Version
+    @Column(name = "version")
+    private Long version;
+
     @Column(name = "created_at", updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

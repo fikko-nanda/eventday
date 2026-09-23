@@ -71,4 +71,9 @@ public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecific
     long countByOrganizer_OrganizerId(UUID organizerId);
 
     long countByOrganizer_OrganizerIdAndStatus(UUID organizerId, String status);
+
+    // ===== VALIDASI UNIK JUDUL EVENT =====
+    boolean existsByTitleIgnoreCase(String title);
+
+    boolean existsByTitleIgnoreCaseAndEventIdNot(String title, UUID eventId);
 }
