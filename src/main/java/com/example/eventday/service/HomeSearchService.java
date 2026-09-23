@@ -8,6 +8,7 @@ import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.TicketTierRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -16,10 +17,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -84,19 +82,33 @@ public class HomeSearchService {
         if (page == null) {
             return Page.empty(pageable);
         }
+
+        List<EventCardResponse> cards = new ArrayList<>(page.getContent().stream().map(this::toCard).toList());
+
+        for (Sort.Order order : pageable.getSort()) {
+            if ("price".equalsIgnoreCase(order.getProperty())) {
+                if (order.isAscending()) {
+                    cards.sort(Comparator.comparing(EventCardResponse::getLowestPrice, Comparator.nullsLast(BigDecimal::compareTo)));
+                } else {
+                    cards.sort(Comparator.comparing(EventCardResponse::getLowestPrice, Comparator.nullsLast(BigDecimal::compareTo)).reversed());
+                }
+                return new PageImpl<>(cards, pageable, page.getTotalElements());
+            }
+        }
+
         return page.map(this::toCard);
     }
 
     public Sort parseSort(String sort) {
         if (sort == null || sort.isBlank()) {
-            return Sort.by(Sort.Direction.DESC, "createdAt");
+            return Sort.by(Sort.Direction.DESC, "startDate");
         }
         return switch (sort.toLowerCase()) {
-            case "price_asc" -> Sort.by(Sort.Direction.ASC, "startDate");
-            case "price_desc" -> Sort.by(Sort.Direction.DESC, "startDate");
+            case "price_asc" -> Sort.by(Sort.Direction.ASC, "price");
+            case "price_desc" -> Sort.by(Sort.Direction.DESC, "price");
             case "date_asc" -> Sort.by(Sort.Direction.ASC, "startDate");
             case "date_desc" -> Sort.by(Sort.Direction.DESC, "startDate");
-            default -> Sort.by(Sort.Direction.DESC, "createdAt");
+            default -> Sort.by(Sort.Direction.DESC, "startDate");
         };
     }
 
@@ -124,7 +136,7 @@ public class HomeSearchService {
             }
             return tiers.stream()
                     .map(TicketTier::getPrice)
-                    .filter(p -> p != null)
+                    .filter(Objects::nonNull)
                     .min(BigDecimal::compareTo)
                     .orElse(BigDecimal.ZERO);
         } catch (Exception e) {

@@ -62,13 +62,13 @@ public class OrderService {
         TicketTier tier = ticketTierRepository.findById(request.getTierId())
                 .orElseThrow(() -> new IllegalArgumentException("Ticket tier tidak ditemukan"));
 
-        if (tier.getAvailableQuota() < request.getQuantity()) {
-            throw new IllegalStateException("Kuota tiket tidak mencukupi");
+        // [ATOMIC UPDATE & RACE CONDITION GUARD]: 
+        // Mengurangi kuota langsung di level database. Jika kuota < request.getQuantity(), 
+        // query mengembalikan 0 dan transaksi langsung dibatalkan (mencegah overselling).
+        int updated = ticketTierRepository.decrementAvailableQuota(request.getTierId(), request.getQuantity());
+        if (updated == 0) {
+            throw new IllegalStateException("Kuota tiket tidak mencukupi atau sedang dipesan pengguna lain");
         }
-
-        // Potong kuota tiket di database saat order baru dibuat
-        tier.setAvailableQuota(tier.getAvailableQuota() - request.getQuantity());
-        ticketTierRepository.save(tier);
 
         BigDecimal subtotal = tier.getPrice().multiply(BigDecimal.valueOf(request.getQuantity()));
         BigDecimal tax = subtotal.multiply(BigDecimal.valueOf(0.10)); // Pajak 10%
@@ -88,15 +88,13 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
+    // [ATOMIC RESTORE]: Pengembalian kuota tiket secara atomik saat order EXPIRED atau CANCELLED
     @Transactional
     public void handleExpiredOrCancelledOrder(Order order) {
         if ("EXPIRED".equalsIgnoreCase(order.getStatus()) || "CANCELLED".equalsIgnoreCase(order.getStatus())) {
-            log.info("Mengembalikan kuota tiket sebanyak {} untuk Order ID: {}", order.getQuantity(),
-                    order.getOrderId());
-            TicketTier tier = order.getTicketTier();
-            if (tier != null) {
-                tier.setAvailableQuota(tier.getAvailableQuota() + order.getQuantity());
-                ticketTierRepository.save(tier);
+            log.info("Mengembalikan kuota tiket sebanyak {} untuk Order ID: {}", order.getQuantity(), order.getOrderId());
+            if (order.getTicketTier() != null && order.getQuantity() != null) {
+                ticketTierRepository.incrementAvailableQuota(order.getTicketTier().getTierId(), order.getQuantity());
             }
         }
     }
