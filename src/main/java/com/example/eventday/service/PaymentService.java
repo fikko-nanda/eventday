@@ -87,6 +87,54 @@ public class PaymentService {
     }
 
     @Transactional
+    public void verifyAndUpdateStatus(String orderIdStr, String transactionId) {
+        if (orderIdStr == null || orderIdStr.isBlank()) {
+            throw new IllegalArgumentException("Order ID tidak boleh kosong");
+        }
+
+        String cleanUUIDStr = orderIdStr.replace("ORD-", "").trim();
+        UUID orderId;
+        try {
+            orderId = UUID.fromString(cleanUUIDStr);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Order ID tidak valid: " + orderIdStr);
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan dengan ID: " + orderIdStr));
+
+        if ("PAID".equalsIgnoreCase(order.getStatus())) {
+            log.info("Order ID {} sudah berstatus PAID.", orderIdStr);
+            return;
+        }
+
+        order.setStatus("PAID");
+        order.setPaidAt(LocalDateTime.now());
+        if (transactionId != null && !transactionId.isBlank()) {
+            order.setTransactionIdGateway(transactionId);
+        }
+        orderRepository.save(order);
+
+        log.info("Order ID {} berhasil diubah menjadi PAID via verifikasi manual", orderIdStr);
+
+        try {
+            ticketService.generateTicketsForOrder(order);
+            log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
+
+            String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
+                    ? order.getCustomer().getEmail() : "";
+            String eventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
+                    ? order.getEvent().getTitle() : "Eventday Ticket";
+
+            if (!email.isBlank()) {
+                emailService.sendOrderConfirmationEmail(email, orderIdStr, eventTitle, order.getQuantity());
+            }
+        } catch (Exception e) {
+            log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
+        }
+    }
+
+    @Transactional
     public void processMidtransNotification(Map<String, Object> payload) {
         if (payload == null || !payload.containsKey("order_id")) {
             log.warn("Payload webhook Midtrans kosong atau tidak memiliki order_id");
@@ -99,6 +147,7 @@ public class PaymentService {
         String signatureKey = String.valueOf(payload.get("signature_key"));
         String transactionStatus = String.valueOf(payload.get("transaction_status"));
         String fraudStatus = String.valueOf(payload.get("fraud_status"));
+        String transactionId = payload.get("transaction_id") != null ? String.valueOf(payload.get("transaction_id")) : null;
 
         log.info("Notifikasi Midtrans diterima untuk Order ID: {} dengan status: {}", orderIdStr, transactionStatus);
 
@@ -151,6 +200,9 @@ public class PaymentService {
         if (isSuccess) {
             order.setStatus("PAID");
             order.setPaidAt(LocalDateTime.now());
+            if (transactionId != null && !transactionId.isBlank()) {
+                order.setTransactionIdGateway(transactionId);
+            }
             orderRepository.save(order);
             log.info("Order ID {} resmi PAID", orderIdStr);
 

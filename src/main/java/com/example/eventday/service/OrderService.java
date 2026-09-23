@@ -42,6 +42,21 @@ public class OrderService {
         if (userId != null) {
             customer = userRepository.findById(userId)
                     .orElseThrow(() -> new IllegalArgumentException("User tidak ditemukan"));
+
+            // Cek apakah user sudah memiliki order aktif (PENDING / WAITING_PAYMENT) yang belum expired untuk tier ini
+            Optional<Order> existingOrder = orderRepository
+                    .findFirstByCustomerUserIdAndTicketTierTierIdAndStatusInAndExpiredAtAfterOrderByCreatedAtDesc(
+                            userId,
+                            request.getTierId(),
+                            List.of("PENDING", "WAITING_PAYMENT"),
+                            LocalDateTime.now()
+                    );
+
+            if (existingOrder.isPresent()) {
+                log.info("Mengembalikan order aktif yang sudah ada untuk User ID: {} dan Order ID: {}",
+                        userId, existingOrder.get().getOrderId());
+                return existingOrder.get();
+            }
         }
 
         TicketTier tier = ticketTierRepository.findById(request.getTierId())
@@ -51,12 +66,13 @@ public class OrderService {
             throw new IllegalStateException("Kuota tiket tidak mencukupi");
         }
 
-        // [PERBAIKAN 1]: Potong kuota tiket di database saat order baru dibuat (Cegah Overselling)
+        // Potong kuota tiket di database saat order baru dibuat
         tier.setAvailableQuota(tier.getAvailableQuota() - request.getQuantity());
         ticketTierRepository.save(tier);
 
         BigDecimal subtotal = tier.getPrice().multiply(BigDecimal.valueOf(request.getQuantity()));
-        BigDecimal totalAmount = subtotal.add(adminFee);
+        BigDecimal tax = subtotal.multiply(BigDecimal.valueOf(0.10)); // Pajak 10%
+        BigDecimal totalAmount = subtotal.add(adminFee).add(tax);
 
         Order order = Order.builder()
                 .customer(customer)
@@ -72,11 +88,11 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    // [PERBAIKAN 2]: Method pengembalian kuota tiket saat order EXPIRED atau CANCELLED
     @Transactional
     public void handleExpiredOrCancelledOrder(Order order) {
         if ("EXPIRED".equalsIgnoreCase(order.getStatus()) || "CANCELLED".equalsIgnoreCase(order.getStatus())) {
-            log.info("Mengembalikan kuota tiket sebanyak {} untuk Order ID: {}", order.getQuantity(), order.getOrderId());
+            log.info("Mengembalikan kuota tiket sebanyak {} untuk Order ID: {}", order.getQuantity(),
+                    order.getOrderId());
             TicketTier tier = order.getTicketTier();
             if (tier != null) {
                 tier.setAvailableQuota(tier.getAvailableQuota() + order.getQuantity());
@@ -90,6 +106,17 @@ public class OrderService {
     public List<Attendee> saveAttendees(AttendeeRequest request) {
         if (request.getAttendees() == null || request.getAttendees().isEmpty()) {
             return Collections.emptyList();
+        }
+
+        if (request.getOrderId() != null && !request.getOrderId().isBlank()) {
+            try {
+                UUID orderUuid = UUID.fromString(request.getOrderId());
+                if (!orderRepository.existsById(orderUuid)) {
+                    throw new IllegalArgumentException("Order ID tidak valid atau tidak ditemukan");
+                }
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Format UUID Order ID tidak valid");
+            }
         }
 
         List<Attendee> savedList = new ArrayList<>();
@@ -136,7 +163,7 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    // 4. Cek Status Order (Polling Frontend)
+    // 4. Cek Status Order
     public String getOrderStatus(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order tidak ditemukan"));
