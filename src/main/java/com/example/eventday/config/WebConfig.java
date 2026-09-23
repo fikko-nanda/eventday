@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 @Configuration
+@SuppressWarnings("null")
 public class WebConfig implements WebMvcConfigurer {
 
     @Value("${upload.dir:uploads}")

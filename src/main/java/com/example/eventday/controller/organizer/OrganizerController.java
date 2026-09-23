@@ -3,6 +3,7 @@ package com.example.eventday.controller.organizer;
 import com.example.eventday.dto.ApiResponse;
 import com.example.eventday.service.organizer.OrganizerService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,9 +21,14 @@ public class OrganizerController {
     // ONBOARDING & STATUS VERIFIKASI EO
     // ==========================================
 
-    @PostMapping("/register")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> registerOrganizer(@RequestBody Map<String, Object> request) {
-        Map<String, Object> data = organizerService.registerOrganizer(request);
+    @PostMapping(value = "/register", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> registerOrganizer(
+            @RequestPart("data") Map<String, Object> request,
+            @RequestParam(value = "cvFile", required = false) MultipartFile cvFile,
+            @RequestParam(value = "portfolio", required = false) MultipartFile portfolioFile,
+            @RequestParam(value = "aktaFile", required = false) MultipartFile aktaFile,
+            @RequestParam(value = "aktaPerusahaan", required = false) MultipartFile aktaPerusahaanFile) {
+        Map<String, Object> data = organizerService.registerOrganizer(request, cvFile, portfolioFile, aktaFile, aktaPerusahaanFile);
         return ResponseEntity.ok(ApiResponse.ok("Pendaftaran Event Organizer berhasil dikirim", data));
     }
 

@@ -23,6 +23,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class OrganizerHelperService {
 
     private final OrganizerRepository organizerRepository;
@@ -61,10 +62,15 @@ public class OrganizerHelperService {
     }
 
     public String saveFile(MultipartFile file, String subfolder) {
+        return saveFile(file, subfolder, false);
+    }
+
+    public String saveFile(MultipartFile file, String subfolder, boolean allowPdf) {
         try {
             Path dir = Paths.get(uploadDir, subfolder);
             Files.createDirectories(dir);
-            String filename = UUID.randomUUID() + "_" + Objects.requireNonNull(file.getOriginalFilename()).replaceAll("[^a-zA-Z0-9._-]", "_");
+            String original = Objects.requireNonNull(file.getOriginalFilename());
+            String filename = UUID.randomUUID() + "_" + original.replaceAll("[^a-zA-Z0-9._-]", "_");
             Path target = dir.resolve(filename);
             Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
             return "/" + dir.toString().replace("\\", "/") + "/" + filename;

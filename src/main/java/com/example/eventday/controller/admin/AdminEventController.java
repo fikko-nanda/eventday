@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @RestController
+@SuppressWarnings("null")
 @RequestMapping({"/admin/events", "/api/admin/events"})
 @RequiredArgsConstructor
 public class AdminEventController {

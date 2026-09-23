@@ -18,8 +18,8 @@ public class Event {
     @Column(name = "event_id", updatable = false, nullable = false)
     private UUID eventId;
 
-    @ManyToOne
-    @JoinColumn(name = "organizer_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organizer_id", nullable = true)
     private Organizer organizer;
 
     @Column(nullable = false, length = 150, columnDefinition = "VARCHAR(150)")

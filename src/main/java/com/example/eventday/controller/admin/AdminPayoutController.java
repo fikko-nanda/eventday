@@ -20,6 +20,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping({"/admin/payouts", "/api/admin/payouts"})
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class AdminPayoutController {
 
     private final AdminPayoutService adminPayoutService;

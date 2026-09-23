@@ -15,6 +15,8 @@ Spring Boot 3.2.4 (Java 21, target Java 25) REST API, PostgreSQL, Maven, port 80
 
 > **Status 2026-09-22 (rev.15, HEAD `4680644` + committed):** PR #35-43 + rev.14 fixes + RBAC & null-safety fixes. Perubahan besar vs rev.14: ① **RBAC Matriks Otorisasi** — SecurityConfig eksplisit: `/api/organizer/**` → `hasAnyRole("ORGANIZER","ADMIN")`, `/api/admin/**` → `hasRole("ADMIN")`, `GET /api/events/**` publik hanya PUBLISHED; ② **Organizer Event Detail** — `GET /api/organizer/events/{id}` baru: akses event DRAFT/PUBLISHED milik sendiri, validasi kepemilikan 403 jika bukan pemilik; ③ **Null-Safety Facility/Lineup** — `facility`, `lineup` aman dari NPE (default `""`) di EventService, OrganizerEventService, AdminEventService; ④ **Sales Summary** — default 0 untuk `tickets_sold`, `total_revenue` saat belum ada transaksi; ⑤ **DTO Only Response** — semua endpoint pakai DTO/Map, tidak ada raw entity → hindari circular JSON; ⑥ **Error Standar** — 404 Not Found, 403 Forbidden struktur teratur. Test: 20 PASS / 2 FAIL pre-existing.
 
+> **Status 2026-09-22 (rev.16):** Fix data-leakage & EO register 500 + customer missing admin events. ① **Dashboard EO isolasi 100%** — `OrganizerEventService.getOrganizerEvents/getDraftEvents/getEventDetailById/updateEvent/publishEvent/getEventSalesSummary` + `OrganizerDashboardService.getRecentEvents/getOrganizerDashboard/getOrganizerDashboardMetrics/getRecentTransactions` semua ambil `organizerId` dari JWT via `OrganizerHelperService.resolveCurrentOrganizer/currentUserId`, **hapus `findAll()`** di `getOrganizerDashboard` (ganti `findByOrganizer_OrganizerIdOrderByCreatedAtDesc`), validasi kepemilikan 403/404 di detail/update/publish/sales-summary; ② **Customer publik LEFT JOIN** — `Event.organizer` jadi `nullable=true` (`@JoinColumn nullable true`), `EventRepository.findPublishedEvents/findFeaturedEvents/findPublishedEventById/searchPublishedEvents` pakai `LEFT JOIN e.organizer` → event Admin (organizer NULL, status `PUBLISHED`) tetap muncul; DTO null-check `organizerName="EventDay Official"` anti-NPE; status admin `PUBLISHED` default; ③ **EO Register 403→permitAll + PDF 500→multipart** — `SecurityConfig` tambah `POST /api/organizer/register permitAll` (sebelum `hasAnyRole ORGANIZER/ADMIN`), `OrganizerController.registerOrganizer` jadi `consumes MULTIPART_FORM_DATA` dengan `@RequestPart("data")` + 4 `@RequestParam(required=false)` (cvFile/portfolio/aktaFile/aktaPerusahaan), `OrganizerService.registerOrganizer(request, files)` simpan ke `organizer-docs/` via `helperService.saveFile` (with `Files.createDirectories`), `FileStorageService` tambah `PDF` ke `ALLOWED_EXTENSIONS` + `validateFile(allowPdf)` + `application/pdf` support. BUILD SUCCESS (145 files).
+
 > **Status 2026-09-14 (rev.7):** PR #11 (merged → HEAD `5269654`) tambah **User/Profile (customer dashboard)** — `UserController` (6 endpoint: `GET /user/profile`, `PUT /user/profile/save`, `PUT /account/change-password`, `POST /user/avatar` mock, `POST /user/logout`, `GET /transactions/history`) + `UserService` + 4 DTO baru. `AuthService.logout` kini **expose** via `POST /api/user/logout` (null-kan token + status INACTIVE + hapus cookie) — known issue #7 selesai. `EmailService` +2 metode (`sendPasswordChangedNotification`, `sendOrderConfirmationEmail`). Sisa schema-only: Organizer, Settings, Refund.
 
 > **Status 2026-09-14 (rev.6):** PR #10 (merged → HEAD `2e1cdef`) **rampungkan Checkout** — `attendees` beneran tersimpan ke `order_attendees` (`model/Attendee` + `AttendeeRepository`, bukan stub) + tambah `POST /api/checkout/calculation` (tax 10%) + `POST /api/checkout/process` (→ `WAITING_PAYMENT`) + `GET /api/orders/status` (polling) → `CheckoutController` kini 8 endpoint. `SecurityConfig` publik untuk `/api/events/**` + `/api/terms-conditions` + `/api/privacy-policy` kini **SUDAH COMMITTED** (2 terakhir belum ada controller → 404). Sisa gap: kuota tak decrement, tiket tak diterbitkan otomatis. DB lokal `localhost:5432/eventday` (`postgres`).
@@ -113,10 +115,10 @@ src/main/java/com/example/eventday/
 │   ├── UserController.java           # PR #11 + PR #24 avatar REAL: GET /user/profile, PUT /user/profile/save, PUT /account/change-password, POST /user/avatar (saveFile)|logout, GET /transactions/history (auth)
 │   ├── LegalController.java            # GET /terms-conditions|/privacy-policy + alias /api/* — FIXED rev.13 (publik, konten hardcoded kaya)
 │   ├── organizer/                      # ✅ REV.14: 6 controller (30 endpoint, base /api/organizer)
-│   │   ├── OrganizerController.java        # register, documents/upload, status, auth/change-password, auth/logout
+│   │   ├── OrganizerController.java        # register MULTIPART (rev.16: @RequestPart data + 4 @RequestParam PDF required=false → organizer-docs/), documents/upload, status, auth/change-password, auth/logout
 │   │   ├── OrganizerProfileController.java # GET/PUT profile, avatar, upload-portfolio, upload-deed, document
-│   │   ├── OrganizerDashboardController.java # GET /dashboard, /metrics, /recent-events, /recent-transactions (REAL)
-│   │   ├── OrganizerEventController.java  # GET/POST/PUT events (multipart REAL), publish→PENDING_APPROVAL, draft, sales-summary, /banner (BARU)
+│   │   ├── OrganizerDashboardController.java # GET /dashboard, /metrics, /recent-events, /recent-transactions (REAL, terisolasi per organizerId)
+│   │   ├── OrganizerEventController.java  # GET/POST/PUT events (multipart REAL), publish→PENDING_APPROVAL, draft, sales-summary, /banner (BARU) — list/draft/detail terisolasi organizerId
 │   │   ├── OrganizerRefundController.java # GET refunds/detail, PATCH {id}/status
 │   │   └── OrganizerPayoutController.java # bank-accounts, events/{id}/payout-balance, payouts GET/POST, payouts/detail (String UUID)
 │   ├── RefundController.java           # base /api (BREAKING rev.13): 7 path — submit/detail/history/order-summary REAL, banks MOCK (8 bank), download-proof partial; submit hitung amount real + organizerId selalu terisi
@@ -135,7 +137,7 @@ src/main/java/com/example/eventday/
 │   ├── ApiLoggingFilter.java         # OncePerRequestFilter format ASCII: [IN] [reqId] METHOD URI | IP | UA → [OUT] ... -> status (duration) user/auth/ip + [SLOW!] jika >1s (tanpa warna/box-drawing)
 │   ├── GlobalExceptionHandler.java   # @RestControllerAdvice → ApiResponse.badRequest/unauthorized/forbidden/internalError (400/401/403/500)
 │   ├── WebConfig.java                 # NEW rev.13: serve /uploads/** + /uploads/logos/** dari disk (upload.dir) — URL avatar/logo/deed langsung bisa <img>
-│   └── SecurityConfig.java           # BCrypt, STATELESS, permitAll: /,/error + /api/auth/** + /api/home/** + /api/search/** + /api/events/** + 4 path legal (FIXED rev.13) + /api/payments/midtrans-notification (publik rev.13); `/api/admin/**` + alias `/admin/**` → `hasRole("ADMIN")` (dual alias rev.14); 401/403 via ObjectMapper
+│   └── SecurityConfig.java           # BCrypt, STATELESS, permitAll: /,/error + /api/auth/** + /api/home/** + /api/search/** + /api/events/** + 4 path legal (FIXED rev.13) + /api/payments/midtrans-notification (publik rev.13) + POST /api/organizer/register permitAll (rev.16); `/api/organizer/**` → hasAnyRole ORGANIZER/ADMIN (rev.16 explicit), `/api/admin/**` + alias `/admin/**` → `hasRole("ADMIN")` (dual alias rev.14); 401/403 via ObjectMapper
 ├── security/
 │   ├── JwtTokenProvider.java         # @Value jwt.secret + jwt.expiration-ms, HS256 generate/validate
 │   ├── JwtUtil.java                  # COMPAT — jangan hapus
@@ -177,7 +179,7 @@ src/main/java/com/example/eventday/
 │   ├── Auth.java                     # auth — @ManyToOne User (user_id UNIQUE CASCADE), password BCrypt, authGoogle VARCHAR(20), aksesToken TEXT, expiredToken, status INACTIVE/ACTIVE, resetToken VARCHAR(255), resetExpiredAt
 │   ├── Otp.java                      # otp — @ManyToOne User, otpCode VARCHAR(10), expiredAt
 │   ├── Organizer.java                # organizers — @ManyToOne User, verificationStatus UNVERIFIED
-│   ├── Event.java                    # events — @ManyToOne Organizer, status DRAFT, isFeatured BOOLEAN
+│   ├── Event.java                    # events — @ManyToOne Organizer (rev.16: nullable=true untuk event Admin PUBLISHED via LEFT JOIN), status DRAFT, isFeatured BOOLEAN
 │   ├── TicketTier.java               # ticket_tiers — @ManyToOne Event, price NUMERIC(12,2), totalQuota, availableQuota
 │   ├── Booking.java                  # bookings — @ManyToOne User + TicketTier, status PENDING
 │   ├── Order.java                    # orders — @ManyToOne Booking(UNIQUE)+Customer+Event+TicketTier
@@ -192,8 +194,8 @@ src/main/java/com/example/eventday/
 │   ├── UserRepository.java           # findByEmail, findByUsername, existsByEmail/Username/Nik
 │   ├── AuthRepository.java           # findByUserUserId, findByAksesToken
 │   ├── OtpRepository.java            # findByUserUserIdAndOtpCode, findByUserUserId, deleteByUserUserId
-│   ├── EventRepository.java          # findPublishedEvents(category,search,location,pageable), findFeaturedEvents(pageable), findPublishedEventById(id)
-│   │                               # MODUL 01: findDistinctLocations(), findDistinctCategories(), searchPublishedEvents(keyword,category,location,date,pageable)
+│   ├── EventRepository.java          # findPublishedEvents(category,search,location,pageable), findFeaturedEvents(pageable), findPublishedEventById(id) — rev.16: LEFT JOIN e.organizer untuk admin events
+│   │                               # MODUL 01: findDistinctLocations(), findDistinctCategories(), searchPublishedEvents(keyword,category,location,date,pageable) — rev.16 LEFT JOIN
 │   ├── TicketTierRepository.java     # findByEvent(event)
 │   ├── OrderRepository.java          # findByCustomerUserId (PR #9)
 │   ├── AttendeeRepository.java       # findByOrderId (PR #10)
@@ -213,7 +215,7 @@ src/main/java/com/example/eventday/
     ├── PaymentService.java           # getCheckoutSummary(orderId) + processPaymentCharge: DEAD CODE (tak dipanggil; PaymentController panggil MidtransService langsung)
     ├── MidtransService.java          # Midtrans Snap REAL gateway (createSnapTransaction, verifikasi signature SHA-512)
     ├── TicketService.java            # generateTicketsForOrder (REAL, idempotent — dipanggil webhook/admin/PaymentService) + getIssuedDetail + validateAndUseTicket (QR=UUID, CHECKED_IN/TIKET_SUDAH_DIPAKAI)
-    ├── FileStorageService.java       # ✅ REV.14 BARU: saveImage validasi PNG/JPG/JPEG/WEBP/GIF ≤5MB → uploads/<subfolder> → URL relative /uploads/...
+    ├── FileStorageService.java       # ✅ REV.14 BARU: saveImage validasi PNG/JPG/JPEG/WEBP/GIF/PDF ≤5MB → uploads/<subfolder> → URL relative /uploads/... (rev.16: +PDF + validateFile allowPdf + application/pdf)
     ├── organizer/                    # ✅ REV.14 BARU (domain organizer)
     │   ├── OrganizerHelperService.java     # currentUserId, resolveOrganizer, saveFile
     │   ├── OrganizerProfileService.java    # profile/update/upload/(deed partial)
@@ -337,8 +339,8 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 | GET | `/terms-conditions` + alias `/api/terms-conditions` | Public (FIXED rev.13) | `LegalService` hardcoded kaya (slug/version/sections/HTML) — verified live 200 |
 | GET | `/privacy-policy` + alias `/api/privacy-policy` | Public (FIXED rev.13) | Sama — verified live 200 |
 
-### ✅ AKTIF HYBRID — Organizer (29 endpoint, base `/api/organizer` BREAKING rev.13, Bearer)
-20 lama (PR #21): `OrganizerService` 638 baris DB-backed (`findByUserUserId` → REAL, tanpa konteks → fallback `"mock":true`). 9 stub BARU rev.13 (PR #25): `events` (list/create/update/publish/draft/sales-summary) + `dashboard/metrics|recent-events|recent-transactions` — semua MOCK. Body Map `snake_case`, upload tersimpan (`uploads/`). Masih mock/stub: `auth/logout` (no-op), `payouts/detail` (`Long`), deed URL belum persist. Detail lihat `API.md §17.10`.
+### ✅ AKTIF HYBRID — Organizer (30 endpoint, base `/api/organizer` BREAKING rev.13, Bearer)
+20 lama (PR #21): `OrganizerService` 638 baris DB-backed (`findByUserUserId` → REAL, tanpa konteks → fallback `"mock":true`). 9 stub BARU rev.13 (PR #25) + rev.16 fix: `events` list/draft/detail terisolasi organizerId (`findByOrganizer_OrganizerId...`), `POST /api/organizer/register` MULTIPART `permitAll` + PDF (cvFile/portfolio/aktaFile), `dashboard/metrics|recent-events|recent-transactions` REAL terisolasi (hapus `findAll()`). Body Map `snake_case`, upload tersimpan (`uploads/`). Validasi kepemilikan 403/404 di detail/update/publish/sales. Detail lihat `API.md §17.10`.
 
 **JWT Middleware** `JwtAuthenticationFilter.java:36`: `Authorization: Bearer <token>` **atau** `Cookie: access_token` (`resolveToken()`) → `validate` → `getUserId/role` → cek `auth.status ACTIVE && aksesToken==token` → `SecurityContext ROLE_*` → `anyRequest.authenticated()`. `AuthResponse.token` `@JsonIgnore` — token hanya via `Set-Cookie` HttpOnly, tidak di Network → Response.
 
@@ -399,9 +401,12 @@ Semua `created_at/updated_at/create_by/updated_by` ada; `role/status` VARCHAR de
 - Admin Payout rev.13: sharing tabel `refund_requests` tanpa discriminator → `getAllPayouts` kembalikan refund customer juga. Catatan: sejak PR #24 `submitRefund` selalu isi `organizerId` (real dari event, fallback = customerId) → filter `organizerId IS NOT NULL` **tak lagi memisahkan**; perlu discriminator baru (mis. kolom `type` REFUND/PAYOUT, atau payout = baris dengan `orderId IS NULL`).
 - **Ticket rev.14 (PR #38): base path `/api/tickets` (tanpa `/v1`); `GET /api/tickets/user/{email}` DIHAPUS; `GET /my-tickets` auth-based (`authentication.getName()`); `GET /issued-detail` anti-IDOR (owner/ADMIN/ORGANIZER); `POST /scan` wajib ADMIN/ORGANIZER (CUSTOMER → 403). `TicketService.generateTicketsForOrder` dipanggil otomatis di webhook/admin/PaymentService (idempotent). ⚠️ Bug potensial: `JwtAuthenticationFilter` principal = userId (UUID) → `getName()` = UUID ≠ email → query kosong.**
 - Organizer rev.14 (PR #36-42): **events & dashboard REAL DB** (bukan stub) — 6 controller (`controller/organizer/`), 6 service (`service/organizer/`), `OrganizerService` ±128 baris; create/update event multipart (pakai `CreateEventRequest` @RequestPart), publish → `PENDING_APPROVAL`, `POST /api/organizer/events/banner` baru.
+- Organizer rev.16: **isolasi 100%** — `OrganizerEventService` list/draft/detail/update/publish/sales-summary + `OrganizerDashboardService` metrics/recent-events/recent-transactions semua filter `organizerId` dari JWT (`resolveCurrentOrganizer/currentUserId`), `getOrganizerDashboard` hapus `findAll()` → `findByOrganizer_OrganizerId...`; validasi kepemilikan 403/404.
+- Customer rev.16: `Event.organizer` `nullable=true`, `EventRepository` 4 query publik jadi `LEFT JOIN e.organizer` → event Admin (organizer NULL) muncul di `GET /api/events`; mapping `organizerName="EventDay Official"` anti-NPE; admin create event default `PUBLISHED`.
+- EO Register rev.16: `SecurityConfig` `POST /api/organizer/register permitAll` + `OrganizerController` MULTIPART `@RequestPart("data")` + 4 `@RequestParam(required=false)` PDF + `OrganizerService.registerOrganizer(request, files)` → `organizer-docs/` + `FileStorageService` tambah PDF + `application/pdf`.
 - Admin rev.14: events POST/PUT **multipart** (`@RequestPart("event")` + `file`); `PATCH /{id}/approve` + `PATCH /{id}/reject` event EO; `AdminTicketService` revoke → `REVOKED`, checkin → `CHECKED_IN` (bukan USED/CANCELLED); `AdminTransactionService` transisi ketat: `PENDING → {WAITING_PAYMENT,CANCELLED,EXPIRED}`, `WAITING_PAYMENT → {PAID,CANCELLED,EXPIRED}`, `PAID → REFUNDED`.
-- SecurityConfig rev.14: hanya `GET /api/events/**` publik (POST/PUT/DELETE butuh login), `GET /uploads/**` permitAll, `POST /api/tickets/scan` → `hasAnyRole(ADMIN,ORGANIZER)`, alias `/api/v1/payments/**`.
-- `FileStorageService` BARU (rev.14): validasi PNG/JPG/JPEG/WEBP/GIF ≤5MB → `uploads/<subfolder>` → URL relative `/uploads/...`.
+- SecurityConfig rev.14+16: hanya `GET /api/events/**` publik (POST/PUT/DELETE butuh login), `GET /uploads/**` permitAll, `POST /api/tickets/scan` → `hasAnyRole(ADMIN,ORGANIZER)`, alias `/api/v1/payments/**`; **rev.16**: `POST /api/organizer/register permitAll` sebelum `hasAnyRole ORGANIZER/ADMIN`.
+- `FileStorageService` BARU (rev.14): validasi PNG/JPG/JPEG/WEBP/GIF ≤5MB → `uploads/<subfolder>` → URL relative `/uploads/...`; **rev.16**: tambah `PDF` + `validateFile(allowPdf)` + `application/pdf`.
 - User/Profile PR #11 + PR #24: `UserController` ambil userId dari `authentication.getName()` (UUID); profil baca dari `users`; update hanya name/phone/nik (email/username/role TIDAK bisa diganti); avatar REAL (validasi image/*/5MB → `uploads/avatars/`, diserve `WebConfig`); change-password wajib `oldPassword` cocok & != `newPassword` (min 6); riwayat transaksi = semua `Order` milik user via `findByCustomerUserId`.
 - Logging Spring Boot aktif `logging.level.com.example.eventday=DEBUG` → `logs/eventday.log`. Console format ASCII `%d %5p [%t] %logger : %m%n` + `ApiLoggingFilter` `[IN] [reqId] METHOD URI | IP | UA` → `[OUT] ... -> status (duration) user/auth/ip` + `[SLOW!]` jika >1s (tanpa warna/box-drawing).
 

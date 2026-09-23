@@ -30,6 +30,7 @@ import java.util.*;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class AdminTicketService {
 
     private final TicketItemRepository ticketItemRepository;

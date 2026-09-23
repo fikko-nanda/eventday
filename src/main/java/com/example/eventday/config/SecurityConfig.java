@@ -77,7 +77,10 @@ public class SecurityConfig {
                         // Endpoint Scan Tiket (Admin / Organizer)
                         .requestMatchers("/api/tickets/scan", "/api/v1/tickets/scan").hasAnyRole("ADMIN", "ORGANIZER")
 
-                        // Modul Organizer - semua endpoint butuh role ORGANIZER atau ADMIN
+                        // Registrasi Event Organizer (Publik - bisa diakses tanpa login atau setelah login sebagai CUSTOMER)
+                        .requestMatchers(HttpMethod.POST, "/api/organizer/register").permitAll()
+
+                        // Modul Organizer - semua endpoint butuh role ORGANIZER atau ADMIN (kecuali register)
                         .requestMatchers("/api/organizer/**").hasAnyRole("ORGANIZER", "ADMIN")
 
                         // Modul Admin
@@ -85,7 +88,7 @@ public class SecurityConfig {
 
                         // Sisanya wajib Authenticated
                         .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

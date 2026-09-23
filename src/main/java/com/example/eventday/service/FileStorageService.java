@@ -18,7 +18,7 @@ import java.util.UUID;
 @Service
 public class FileStorageService {
 
-    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("PNG", "JPG", "JPEG", "WEBP", "GIF");
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("PNG", "JPG", "JPEG", "WEBP", "GIF", "PDF");
 
     @Value("${upload.dir:uploads}")
     private String uploadDir;
@@ -41,9 +41,9 @@ public class FileStorageService {
         }
     }
 
-    public void validateImage(MultipartFile file) {
+    public void validateFile(MultipartFile file, boolean allowPdf) {
         if (file == null || file.isEmpty()) {
-            throw new RuntimeException("File gambar tidak boleh kosong!");
+            throw new RuntimeException("File tidak boleh kosong!");
         }
         String contentType = file.getContentType();
         String originalFilename = file.getOriginalFilename();
@@ -51,13 +51,18 @@ public class FileStorageService {
                 ? originalFilename.substring(originalFilename.lastIndexOf(".") + 1).toUpperCase()
                 : "";
         boolean validExt = ALLOWED_EXTENSIONS.contains(extension);
-        boolean validType = contentType != null && contentType.startsWith("image/");
+        boolean validType = contentType != null && (contentType.startsWith("image/") || (allowPdf && "application/pdf".equals(contentType)));
         if (!validExt && !validType) {
-            throw new RuntimeException("Format file tidak valid. Hanya diperbolehkan: PNG, JPG, JPEG, WEBP");
+            String allowed = allowPdf ? "PNG, JPG, JPEG, WEBP, PDF" : "PNG, JPG, JPEG, WEBP";
+            throw new RuntimeException("Format file tidak valid. Hanya diperbolehkan: " + allowed);
         }
         long maxSizeBytes = 5L * 1024 * 1024;
         if (file.getSize() > maxSizeBytes) {
             throw new RuntimeException("Ukuran file melebihi batas maksimum 5MB!");
         }
+    }
+    
+    public void validateImage(MultipartFile file) {
+        validateFile(file, false);
     }
 }
