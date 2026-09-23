@@ -69,6 +69,20 @@ public class PaymentController {
         }
     }
 
+    @GetMapping("/verify")
+    public ResponseEntity<ApiResponse<String>> verifyPaymentStatus(
+            @RequestParam("orderId") String orderId,
+            @RequestParam(value = "transactionId", required = false) String transactionId) {
+        try {
+            paymentService.verifyAndUpdateStatus(orderId, transactionId);
+            return ResponseEntity.ok(ApiResponse.success("Status pembayaran berhasil diverifikasi", "OK"));
+        } catch (Exception e) {
+            log.error("Error verifikasi pembayaran: ", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.success("Gagal memverifikasi pembayaran: " + e.getMessage(), null));
+        }
+    }
+
     @PostMapping({ "/midtrans-notification", "/notification" })
     public ResponseEntity<ApiResponse<String>> handleMidtransNotification(
             @RequestBody Map<String, Object> notification) {
