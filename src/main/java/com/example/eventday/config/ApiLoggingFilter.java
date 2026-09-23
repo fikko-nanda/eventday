@@ -17,6 +17,7 @@ import java.util.UUID;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 @Slf4j
+@SuppressWarnings("null")
 public class ApiLoggingFilter extends OncePerRequestFilter {
 
     @Override

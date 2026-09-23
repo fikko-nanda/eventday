@@ -27,7 +27,9 @@ public class OrganizerService {
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
-    public Map<String, Object> registerOrganizer(Map<String, Object> request) {
+    public Map<String, Object> registerOrganizer(Map<String, Object> request, 
+            MultipartFile cvFile, MultipartFile portfolioFile, 
+            MultipartFile aktaFile, MultipartFile aktaPerusahaanFile) {
         UUID uid = helperService.currentUserId();
         if (uid == null) {
             Map<String, Object> data = new HashMap<>();
@@ -49,6 +51,26 @@ public class OrganizerService {
         }
         User user = userRepository.findById(uid).orElseThrow(() -> new RuntimeException("User tidak ditemukan"));
         String name = (String) request.getOrDefault("name", request.getOrDefault("organizer_name", user.getName()));
+        
+        // Handle file uploads
+        Map<String, String> documentUrls = new HashMap<>();
+        if (cvFile != null && !cvFile.isEmpty()) {
+            String url = helperService.saveFile(cvFile, "organizer-docs");
+            documentUrls.put("cv_url", url);
+        }
+        if (portfolioFile != null && !portfolioFile.isEmpty()) {
+            String url = helperService.saveFile(portfolioFile, "organizer-docs");
+            documentUrls.put("portfolio_url", url);
+        }
+        if (aktaFile != null && !aktaFile.isEmpty()) {
+            String url = helperService.saveFile(aktaFile, "organizer-docs");
+            documentUrls.put("akta_url", url);
+        }
+        if (aktaPerusahaanFile != null && !aktaPerusahaanFile.isEmpty()) {
+            String url = helperService.saveFile(aktaPerusahaanFile, "organizer-docs");
+            documentUrls.put("akta_perusahaan_url", url);
+        }
+        
         Organizer org = Organizer.builder()
                 .user(user)
                 .nameOrganizer(name)
@@ -58,11 +80,13 @@ public class OrganizerService {
                 .verificationStatus("PENDING")
                 .build();
         organizerRepository.save(org);
+        
         Map<String, Object> data = new HashMap<>();
         data.put("organizer_id", org.getOrganizerId().toString());
         data.put("organizer_name", org.getNameOrganizer());
         data.put("verification_status", org.getVerificationStatus());
         data.put("user_id", uid.toString());
+        data.putAll(documentUrls);
         return data;
     }
 

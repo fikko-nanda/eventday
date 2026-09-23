@@ -59,7 +59,13 @@ public class AdminEventService {
             request.setBannerUrl(fileStorageService.saveImage(bannerFile, "event-banners"));
         }
 
-        Organizer organizer = findDefaultOrganizer();
+        // Isolasi: organizerId opsional dari payload admin
+        // Jika dikirim → assign ke organizer tsb (untuk assign event ke EO). Jika null → event murni Admin (organizer=null, tampil via LEFT JOIN)
+        Organizer organizer = null;
+        if (request.getOrganizerId() != null) {
+            organizer = organizerRepository.findById(request.getOrganizerId())
+                    .orElseThrow(() -> new RuntimeException("Organizer tidak ditemukan: " + request.getOrganizerId()));
+        }
 
         Event event = Event.builder()
                 .organizer(organizer)
@@ -102,6 +108,12 @@ public class AdminEventService {
     public AdminEventResponse updateEvent(UUID eventId, CreateEventRequest request, MultipartFile bannerFile, UUID adminId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
+        // Update organizer if organizerId provided; if null → no change to avoid accidental removal
+        if (request.getOrganizerId() != null) {
+            Organizer newOrg = organizerRepository.findById(request.getOrganizerId())
+                    .orElseThrow(() -> new RuntimeException("Organizer tidak ditemukan: " + request.getOrganizerId()));
+            event.setOrganizer(newOrg);
+        }
 
         if (bannerFile != null && !bannerFile.isEmpty()) {
             request.setBannerUrl(fileStorageService.saveImage(bannerFile, "event-banners"));
@@ -370,10 +382,6 @@ public class AdminEventService {
         }
     }
 
-    private Organizer findDefaultOrganizer() {
-        return organizerRepository.findFirstByOrderByCreatedAtAsc()
-                .orElseThrow(() -> new RuntimeException("Tidak ada organizer di sistem. Buat organizer terlebih dahulu."));
-    }
 
     private AdminEventListResponse mapToListResponse(Event e) {
         return AdminEventListResponse.builder()
@@ -437,7 +445,7 @@ public class AdminEventService {
     }
 
     private String getOrganizerName(Organizer organizer) {
-        if (organizer == null) return "-";
-        return organizer.getNameOrganizer() != null ? organizer.getNameOrganizer() : "-";
+        if (organizer == null) return "EventDay Official";
+        return organizer.getNameOrganizer() != null ? organizer.getNameOrganizer() : "EventDay Official";
     }
 }

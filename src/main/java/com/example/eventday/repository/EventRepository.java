@@ -15,7 +15,7 @@ import java.util.UUID;
 @Repository
 public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationExecutor<Event> {
 
-    @Query("SELECT e FROM Event e WHERE " +
+    @Query("SELECT e FROM Event e LEFT JOIN e.organizer o WHERE " +
            "(CAST(:category AS string) IS NULL OR e.category = :category) AND " +
            "(CAST(:search AS string) IS NULL OR LOWER(e.title) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) " +
            "OR LOWER(e.venueName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))) AND " +
@@ -27,10 +27,10 @@ public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecific
             @Param("location") String location,
             Pageable pageable);
 
-    @Query("SELECT e FROM Event e WHERE e.isFeatured = true AND e.status = 'PUBLISHED'")
+    @Query("SELECT e FROM Event e LEFT JOIN e.organizer o WHERE e.isFeatured = true AND e.status = 'PUBLISHED'")
     Page<Event> findFeaturedEvents(Pageable pageable);
 
-    @Query("SELECT e FROM Event e WHERE e.eventId = :id AND e.status = 'PUBLISHED'")
+    @Query("SELECT e FROM Event e LEFT JOIN e.organizer o WHERE e.eventId = :id AND e.status = 'PUBLISHED'")
     Event findPublishedEventById(@Param("id") UUID id);
 
     // ===== MODUL 01: HOME & SEARCH =====
@@ -41,7 +41,7 @@ public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecific
     @Query("SELECT DISTINCT e.category FROM Event e WHERE e.category IS NOT NULL AND e.status = 'PUBLISHED' ORDER BY e.category ASC")
     List<String> findDistinctCategories();
 
-    @Query("SELECT e FROM Event e WHERE "
+    @Query("SELECT e FROM Event e LEFT JOIN e.organizer o WHERE "
             + "e.status = 'PUBLISHED' AND "
             + "(CAST(:keyword AS string) IS NULL OR LOWER(e.title) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) "
             + "OR LOWER(e.description) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) "

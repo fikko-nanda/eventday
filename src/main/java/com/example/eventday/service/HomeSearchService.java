@@ -89,12 +89,14 @@ public class HomeSearchService {
 
     public Sort parseSort(String sort) {
         if (sort == null || sort.isBlank()) {
-            return Sort.by(Sort.Direction.DESC, "startDate");
+            return Sort.by(Sort.Direction.DESC, "createdAt");
         }
         return switch (sort.toLowerCase()) {
-            case "price_asc", "price_desc" -> Sort.by(Sort.Direction.DESC, "startDate");
+            case "price_asc" -> Sort.by(Sort.Direction.ASC, "startDate");
+            case "price_desc" -> Sort.by(Sort.Direction.DESC, "startDate");
             case "date_asc" -> Sort.by(Sort.Direction.ASC, "startDate");
-            default -> Sort.by(Sort.Direction.DESC, "startDate");
+            case "date_desc" -> Sort.by(Sort.Direction.DESC, "startDate");
+            default -> Sort.by(Sort.Direction.DESC, "createdAt");
         };
     }
 

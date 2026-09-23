@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
+@SuppressWarnings("null")
 @RequestMapping({"/admin/tickets", "/api/admin/tickets"})
 @RequiredArgsConstructor
 public class AdminTicketController {

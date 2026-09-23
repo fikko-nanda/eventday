@@ -21,6 +21,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping({"/admin/transactions", "/api/admin/transactions"})
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class AdminTransactionController {
 
     private final AdminTransactionService adminTransactionService;

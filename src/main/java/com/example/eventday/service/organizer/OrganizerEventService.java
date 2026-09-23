@@ -84,13 +84,10 @@ public class OrganizerEventService {
             payload.put("banner_url", fileStorageService.saveImage(bannerFile, "event-banners"));
         }
 
-        LocalDateTime start = payload.get("startDate") != null || payload.get("start_date") != null
-                ? LocalDateTime.parse(String.valueOf(payload.getOrDefault("startDate", payload.get("start_date"))).replace(" ", "T"))
-                : LocalDateTime.now().plusDays(7);
-
-        LocalDateTime end = payload.get("endDate") != null || payload.get("end_date") != null
-                ? LocalDateTime.parse(String.valueOf(payload.getOrDefault("endDate", payload.get("end_date"))).replace(" ", "T"))
-                : start.plusDays(1);
+        LocalDateTime start = parseDateTime(payload.get("startDate") != null ? payload.get("startDate") : payload.get("start_date"));
+        if (start == null) start = LocalDateTime.now().plusDays(7);
+        LocalDateTime end = parseDateTime(payload.get("endDate") != null ? payload.get("endDate") : payload.get("end_date"));
+        if (end == null) end = start.plusDays(1);
 
         Event event = Event.builder()
                  .organizer(org)
@@ -199,10 +196,12 @@ public class OrganizerEventService {
         if (payload.containsKey("lineup")) event.setLineup((String) payload.get("lineup"));
 
         if (payload.containsKey("startDate") || payload.containsKey("start_date")) {
-            event.setStartDate(LocalDateTime.parse(String.valueOf(payload.getOrDefault("startDate", payload.get("start_date"))).replace(" ", "T")));
+            LocalDateTime sd = parseDateTime(payload.get("startDate") != null ? payload.get("startDate") : payload.get("start_date"));
+            if (sd != null) event.setStartDate(sd);
         }
         if (payload.containsKey("endDate") || payload.containsKey("end_date")) {
-            event.setEndDate(LocalDateTime.parse(String.valueOf(payload.getOrDefault("endDate", payload.get("end_date"))).replace(" ", "T")));
+            LocalDateTime ed = parseDateTime(payload.get("endDate") != null ? payload.get("endDate") : payload.get("end_date"));
+            if (ed != null) event.setEndDate(ed);
         }
 
         event.setUpdatedAt(LocalDateTime.now());
@@ -270,9 +269,28 @@ public class OrganizerEventService {
         return summary;
     }
 
+    private LocalDateTime parseDateTime(Object raw) {
+        if (raw == null) return null;
+        String s = String.valueOf(raw).trim();
+        if (s.isEmpty() || "null".equalsIgnoreCase(s)) return null;
+        s = s.replace(" ", "T");
+        // handle date-only e.g. 2026-09-23
+        if (s.length() == 10) s = s + "T00:00:00";
+        String[] patterns = {"yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd"};
+        for (String pat : patterns) {
+            try {
+                if (pat.equals("yyyy-MM-dd")) return java.time.LocalDate.parse(s.substring(0, 10)).atStartOfDay();
+                return LocalDateTime.parse(s, java.time.format.DateTimeFormatter.ofPattern(pat));
+            } catch (Exception ignored) {}
+        }
+        try { return LocalDateTime.parse(s); } catch (Exception e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Format tanggal tidak valid: " + raw); }
+    }
+
     private Map<String, Object> mapEventToResponse(Event event) {
         Map<String, Object> map = new HashMap<>();
         map.put("event_id", event.getEventId().toString());
+        map.put("organizer_id", event.getOrganizer() != null ? event.getOrganizer().getOrganizerId().toString() : null);
+        map.put("organizerId", event.getOrganizer() != null ? event.getOrganizer().getOrganizerId().toString() : null);
         map.put("title", event.getTitle());
         map.put("description", event.getDescription());
         map.put("category", event.getCategory());

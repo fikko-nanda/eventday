@@ -26,6 +26,7 @@ import java.util.*;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class AdminTransactionService {
 
     private final OrderRepository orderRepository;

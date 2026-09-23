@@ -25,10 +25,30 @@ public class OrganizerEventController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ApiResponse<Map<String, Object>>> createEvent(
-            @RequestPart("event") Map<String, Object> request,
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createEventMultipart(
+            @RequestPart(value = "event", required = false) Map<String, Object> event,
+            @RequestPart(value = "data", required = false) Map<String, Object> data,
+            @RequestParam(value = "event", required = false) String eventJson,
             @RequestParam(value = "file", required = false) MultipartFile file) {
+        Map<String, Object> request = event != null ? event : data;
+        if (request == null && eventJson != null && !eventJson.isBlank()) {
+            try {
+                request = new com.fasterxml.jackson.databind.ObjectMapper().readValue(eventJson,
+                        new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            } catch (Exception e) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Format JSON event tidak valid: " + e.getMessage());
+            }
+        }
+        if (request == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Part 'event' wajib diisi (kirim sebagai part 'event' atau 'data')");
+        }
         return ResponseEntity.status(201).body(ApiResponse.ok("Event berhasil dibuat", eventService.createEvent(request, file)));
+    }
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createEventJson(
+            @RequestBody Map<String, Object> request) {
+        return ResponseEntity.status(201).body(ApiResponse.ok("Event berhasil dibuat", eventService.createEvent(request, null)));
     }
 
     @PutMapping(value = "/update", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

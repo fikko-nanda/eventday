@@ -4,6 +4,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Data
 public class CreateEventRequest {
@@ -16,6 +17,7 @@ public class CreateEventRequest {
     private String bannerUrl;
     private List<String> facilities;
     private List<TicketTierDto> ticketTiers;
+    private UUID organizerId; // opsional: jika diisi → assign organizer, jika null → event Admin (organizer=null)
 
     @Data
     public static class TicketTierDto {
