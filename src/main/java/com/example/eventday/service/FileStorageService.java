@@ -41,6 +41,30 @@ public class FileStorageService {
         }
     }
 
+    public String saveFile(MultipartFile file, String subfolder) {
+        return saveFile(file, subfolder, true);
+    }
+
+    // Simpan file dokumen (gambar ATAU PDF) ke uploads/<subfolder>/ — direktori dibuat otomatis
+    public String saveFile(MultipartFile file, String subfolder, boolean allowPdf) {
+        validateFile(file, allowPdf);
+        try {
+            Path dir = Paths.get(uploadDir, subfolder);
+            Files.createDirectories(dir);
+            String original = file.getOriginalFilename();
+            if (original == null || original.isBlank()) {
+                original = "document";
+            }
+            String filename = UUID.randomUUID() + "_" + original.replaceAll("[^a-zA-Z0-9._-]", "_");
+            Path target = dir.resolve(filename);
+            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+            return "/" + dir.toString().replace("\\", "/") + "/" + filename;
+        } catch (IOException e) {
+            log.warn("Gagal simpan file {}: {}", file.getOriginalFilename(), e.getMessage());
+            throw new RuntimeException("Gagal mengunggah file: " + e.getMessage());
+        }
+    }
+
     public void validateFile(MultipartFile file, boolean allowPdf) {
         if (file == null || file.isEmpty()) {
             throw new RuntimeException("File tidak boleh kosong!");

@@ -32,12 +32,10 @@ public class OrganizerService {
             MultipartFile aktaFile, MultipartFile aktaPerusahaanFile) {
         UUID uid = helperService.currentUserId();
         if (uid == null) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("organizer_name", request.getOrDefault("name", "PT Penyelenggara Event"));
-            data.put("verification_status", "PENDING");
-            data.put("mock", true);
-            data.put("note", "Login dulu untuk register organizer real");
-            return data;
+            // Pendaftaran EO wajib login dulu (Customer/buyer) — tanpa login tidak bisa
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "Daftar EO harus login terlebih dahulu");
         }
         Optional<Organizer> existing = organizerRepository.findByUserUserId(uid);
         if (existing.isPresent()) {
@@ -49,35 +47,47 @@ public class OrganizerService {
             data.put("message", "Organizer sudah terdaftar");
             return data;
         }
-        User user = userRepository.findById(uid).orElseThrow(() -> new RuntimeException("User tidak ditemukan"));
-        String name = (String) request.getOrDefault("name", request.getOrDefault("organizer_name", user.getName()));
-        
-        // Handle file uploads
+        User user = userRepository.findById(uid).orElseThrow(() ->
+                new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.UNAUTHORIZED,
+                        "Akun tidak ditemukan — silakan login terlebih dahulu"));
+        String name = getStr(request, "name", "organizer_name", "nama", "namaEo");
+        if (name == null || name.isBlank()) {
+            name = user.getName();
+        }
+
+        // Handle file uploads (null-safe: file boleh tidak dikirim, invalid -> 400)
         Map<String, String> documentUrls = new HashMap<>();
+        String cvUrl = null;
+        String portfolioUrl = null;
+        String aktaUrl = null;
         if (cvFile != null && !cvFile.isEmpty()) {
-            String url = helperService.saveFile(cvFile, "organizer-docs");
-            documentUrls.put("cv_url", url);
+            cvUrl = helperService.saveFile(cvFile, "organizer-docs", true);
+            if (cvUrl != null) documentUrls.put("cv_url", cvUrl);
         }
         if (portfolioFile != null && !portfolioFile.isEmpty()) {
-            String url = helperService.saveFile(portfolioFile, "organizer-docs");
-            documentUrls.put("portfolio_url", url);
+            portfolioUrl = helperService.saveFile(portfolioFile, "organizer-docs", true);
+            if (portfolioUrl != null) documentUrls.put("portfolio_url", portfolioUrl);
         }
         if (aktaFile != null && !aktaFile.isEmpty()) {
-            String url = helperService.saveFile(aktaFile, "organizer-docs");
-            documentUrls.put("akta_url", url);
+            String url = helperService.saveFile(aktaFile, "organizer-docs", true);
+            if (url != null) documentUrls.put("akta_url", url);
         }
         if (aktaPerusahaanFile != null && !aktaPerusahaanFile.isEmpty()) {
-            String url = helperService.saveFile(aktaPerusahaanFile, "organizer-docs");
-            documentUrls.put("akta_perusahaan_url", url);
+            aktaUrl = helperService.saveFile(aktaPerusahaanFile, "organizer-docs", true);
+            if (aktaUrl != null) documentUrls.put("akta_perusahaan_url", aktaUrl);
         }
         
         Organizer org = Organizer.builder()
                 .user(user)
                 .nameOrganizer(name)
-                .npwpNumber((String) request.get("npwp_number"))
-                .bankName((String) request.get("bank_name"))
-                .bankAccountNumber((String) request.get("bank_account_number"))
-                .verificationStatus("PENDING")
+                .npwpNumber(getStr(request, "npwp_number", "npwp", "npwpNumber"))
+                .bankName(getStr(request, "bank_name", "bankName"))
+                .bankAccountNumber(getStr(request, "bank_account_number", "account_number", "bankAccountNumber"))
+                .cvUrl(cvUrl)
+                .portfolioUrl(portfolioUrl)
+                .aktaPerusahaan(aktaUrl)
+                .verificationStatus("UNVERIFIED")
                 .build();
         organizerRepository.save(org);
         
@@ -90,8 +100,24 @@ public class OrganizerService {
         return data;
     }
 
+    // Baca nilai String dari map tanpa ClassCastException (value JSON bisa non-String)
+    private static String getStr(Map<String, Object> map, String... keys) {
+        for (String k : keys) {
+            Object v = map.get(k);
+            if (v != null) {
+                String s = String.valueOf(v).trim();
+                if (!s.isEmpty()) return s;
+            }
+        }
+        return null;
+    }
+
     public Map<String, Object> uploadDocument(MultipartFile file, String documentType) {
-        String url = helperService.saveFile(file, "organizer-docs");
+        if (file == null || file.isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "File tidak boleh kosong");
+        }
+        String url = helperService.saveFile(file, "organizer-docs", true);
         Map<String, Object> data = new HashMap<>();
         data.put("document_type", documentType);
         data.put("file_name", file.getOriginalFilename());

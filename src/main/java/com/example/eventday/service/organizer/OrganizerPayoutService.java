@@ -89,7 +89,7 @@ public class OrganizerPayoutService {
             Optional<Organizer> orgOpt = organizerRepository.findByUserUserId(uid);
             if (orgOpt.isPresent()) {
                 List<RefundRequestEntity> list =
-                        refundRepository.findByOrganizerId(orgOpt.get().getOrganizerId());
+                        refundRepository.findPayoutsByOrganizerId(orgOpt.get().getOrganizerId());
                 if (!list.isEmpty()) {
                     return list.stream().map(r -> {
                         Map<String, Object> m = new HashMap<>();
@@ -165,6 +165,10 @@ public class OrganizerPayoutService {
 
         RefundRequestEntity r = refundRepository.findById(uid)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Data payout tidak ditemukan"));
+
+        if (r.getOrderId() != null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Data bukan payout");
+        }
 
         if (r.getOrganizerId() == null || !r.getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Data bukan milik Anda");

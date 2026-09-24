@@ -2,9 +2,11 @@ package com.example.eventday.service.organizer;
 
 import com.example.eventday.entity.Event;
 import com.example.eventday.entity.Organizer;
+import com.example.eventday.entity.User;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.OrganizerRepository;
+import com.example.eventday.repository.TicketItemRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,7 @@ public class OrganizerDashboardService {
     private final OrganizerRepository organizerRepository;
     private final EventRepository eventRepository;
     private final OrderRepository orderRepository;
+    private final TicketItemRepository ticketItemRepository;
 
     public Map<String, Object> getOrganizerDashboard() {
         UUID uid = helperService.currentUserId();
@@ -123,6 +126,21 @@ public class OrganizerDashboardService {
                     m.put("amount", o.getTotalAmount());
                     m.put("status", o.getStatus());
                     m.put("created_at", o.getCreatedAt() != null ? o.getCreatedAt().toString() : null);
+                    
+                    User customer = o.getCustomer();
+                    if (customer != null && customer.getUserId() != null) {
+                        m.put("customer_id", customer.getUserId().toString());
+                        m.put("customer_name", customer.getName());
+                        m.put("customer_email", customer.getEmail());
+                        // Alternatif: jika pembeli mengisi data attendee terpisah, gunakan attendee pertama
+                        // List<TicketItem> tickets = ticketItemRepository.findByOrderOrderId(o.getOrderId());
+                        // if (!tickets.isEmpty()) {
+                        //     Attendee att = tickets.get(0).getAttendee();
+                        //     if (att != null && att.getFullName() != null && !att.getFullName().isBlank()) {
+                        //         m.put("customer_name", att.getFullName());
+                        //     }
+                        // }
+                    }
                     return m;
                 })
                 .collect(Collectors.toList());

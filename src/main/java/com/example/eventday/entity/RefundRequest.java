@@ -23,8 +23,8 @@ public class RefundRequest {
     @JoinColumn(name = "customer_id", nullable = false)
     private User customer;
 
-    @ManyToOne
-    @JoinColumn(name = "order_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id", nullable = true)
     private Order order;
 
     @Column(name = "refund_amount", nullable = false, precision = 12, scale = 2)

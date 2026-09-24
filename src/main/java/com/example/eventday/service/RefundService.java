@@ -30,6 +30,9 @@ public class RefundService {
     private final RefundRepository refundRepository;
     private final OrderRepository orderRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${app.refund.fee-per-ticket:2500}")
+    private BigDecimal refundFeePerTicket;
+
     public List<Map<String, Object>> getSupportedBanks() {
         return List.of(
                 Map.of("bankCode", "BCA", "bankName", "Bank Central Asia", "logoUrl", "/assets/banks/bca.png", "active", true),
@@ -55,7 +58,9 @@ public class RefundService {
 
         BigDecimal gross = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
         BigDecimal adminFee = order.getAdminFee() != null ? order.getAdminFee() : new BigDecimal("5000");
-        BigDecimal refundable = gross.subtract(adminFee);
+        BigDecimal feeTotal = refundFeePerTicket.multiply(BigDecimal.valueOf(
+                order.getQuantity() != null ? order.getQuantity() : 1));
+        BigDecimal refundable = gross.subtract(adminFee).subtract(feeTotal);
         if (refundable.compareTo(BigDecimal.ZERO) < 0) refundable = BigDecimal.ZERO;
 
         Map<String, Object> m = new LinkedHashMap<>();
@@ -66,6 +71,8 @@ public class RefundService {
         m.put("ticketQuantity", order.getQuantity());
         m.put("grossAmount", gross);
         m.put("adminFee", adminFee);
+        m.put("refundFeePerTicket", refundFeePerTicket);
+        m.put("refundFeeTotal", feeTotal);
         m.put("refundableAmount", refundable);
         m.put("status", order.getStatus());
         m.put("expiredAt", order.getExpiredAt());
@@ -87,10 +94,12 @@ public class RefundService {
             throw new AccessDeniedException("Anda tidak berhak mengajukan refund untuk transaksi ini.");
         }
 
-        // 3. Kalkulasi Dinamis Amount (Menghapus Hardcoded Fallback 290k)
+        // 3. Kalkulasi Dinamis Amount — potong admin fee + biaya proses refund per tiket (ditanggung customer)
         BigDecimal gross = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
         BigDecimal adminFee = order.getAdminFee() != null ? order.getAdminFee() : BigDecimal.ZERO;
-        BigDecimal amount = gross.subtract(adminFee);
+        BigDecimal feeTotal = refundFeePerTicket.multiply(BigDecimal.valueOf(
+                order.getQuantity() != null ? order.getQuantity() : 1));
+        BigDecimal amount = gross.subtract(adminFee).subtract(feeTotal);
         if (amount.compareTo(BigDecimal.ZERO) < 0) {
             amount = BigDecimal.ZERO;
         }
@@ -100,6 +109,15 @@ public class RefundService {
             throw new IllegalStateException("Integritas data gagal: Penyelenggara (organizer) tidak valid.");
         }
         UUID organizerId = order.getEvent().getOrganizer().getOrganizerId();
+
+        // 5. Tolak double refund pada order yang sama (hanya 1 refund aktif per order)
+        List<RefundRequestEntity> existing = refundRepository.findByCustomerId(customerId);
+        boolean alreadyRefunded = existing.stream().anyMatch(x ->
+                request.getOrderId().equals(x.getOrderId())
+                        && !"REJECTED".equalsIgnoreCase(x.getStatus()));
+        if (alreadyRefunded) {
+            throw new IllegalStateException("Order ini sudah memiliki pengajuan refund yang sedang diproses atau disetujui.");
+        }
 
         RefundRequestEntity entity = RefundRequestEntity.builder()
                 .orderId(request.getOrderId())

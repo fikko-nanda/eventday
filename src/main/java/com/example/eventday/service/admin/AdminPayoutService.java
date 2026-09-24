@@ -30,9 +30,9 @@ public class AdminPayoutService {
     public List<PayoutResponse> getAllPayouts(String statusFilter) {
         List<RefundRequestEntity> payouts;
         if (statusFilter != null && !statusFilter.isBlank()) {
-            payouts = refundRepository.findByStatus(statusFilter.toUpperCase());
+            payouts = refundRepository.findPayoutsWithStatus(statusFilter.toUpperCase());
         } else {
-            payouts = refundRepository.findAllByOrderByCreatedAtDesc();
+            payouts = refundRepository.findAllPayoutsByOrderByCreatedAtDesc();
         }
         return payouts.stream().map(this::mapToResponse).collect(Collectors.toList());
     }
@@ -41,6 +41,9 @@ public class AdminPayoutService {
     public PayoutDetailResponse getDetail(UUID payoutId) {
         RefundRequestEntity payout = refundRepository.findById(payoutId)
                 .orElseThrow(() -> new RuntimeException("Pengajuan pencairan tidak ditemukan!"));
+        if (payout.getOrderId() != null) {
+            throw new RuntimeException("Data adalah refund customer, bukan payout");
+        }
         return mapToDetailResponse(payout);
     }
 
@@ -48,6 +51,10 @@ public class AdminPayoutService {
     public PayoutDetailResponse updateStatus(UUID payoutId, UpdatePayoutStatusRequest request, UUID adminId) {
         RefundRequestEntity payout = refundRepository.findById(payoutId)
                 .orElseThrow(() -> new RuntimeException("Pengajuan pencairan tidak ditemukan!"));
+
+        if (payout.getOrderId() != null) {
+            throw new RuntimeException("Data adalah refund customer, bukan payout");
+        }
 
         String newStatus = request.getStatus().toUpperCase();
         payout.setStatus(newStatus);
@@ -73,6 +80,9 @@ public class AdminPayoutService {
     public PayoutDetailResponse getReconciliationDocument(UUID payoutId) {
         RefundRequestEntity payout = refundRepository.findById(payoutId)
                 .orElseThrow(() -> new RuntimeException("Pengajuan pencairan tidak ditemukan!"));
+        if (payout.getOrderId() != null) {
+            throw new RuntimeException("Data adalah refund customer, bukan payout");
+        }
         return mapToDetailResponse(payout);
     }
 

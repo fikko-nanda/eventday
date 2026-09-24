@@ -2,9 +2,9 @@ package com.example.eventday.service.organizer;
 
 import com.example.eventday.entity.Organizer;
 import com.example.eventday.repository.OrganizerRepository;
+import com.example.eventday.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -12,12 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.Objects;
 import java.util.UUID;
 
 @Slf4j
@@ -27,9 +21,7 @@ import java.util.UUID;
 public class OrganizerHelperService {
 
     private final OrganizerRepository organizerRepository;
-
-    @Value("${upload.dir:uploads}")
-    private String uploadDir;
+    private final FileStorageService fileStorageService;
 
     public UUID currentUserId() {
         try {
@@ -62,21 +54,23 @@ public class OrganizerHelperService {
     }
 
     public String saveFile(MultipartFile file, String subfolder) {
-        return saveFile(file, subfolder, false);
+        return saveFile(file, subfolder, true);
     }
 
     public String saveFile(MultipartFile file, String subfolder, boolean allowPdf) {
+        if (file == null || file.isEmpty()) {
+            log.warn("File kosong untuk subfolder {}", subfolder);
+            return null;
+        }
         try {
-            Path dir = Paths.get(uploadDir, subfolder);
-            Files.createDirectories(dir);
-            String original = Objects.requireNonNull(file.getOriginalFilename());
-            String filename = UUID.randomUUID() + "_" + original.replaceAll("[^a-zA-Z0-9._-]", "_");
-            Path target = dir.resolve(filename);
-            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
-            return "/" + dir.toString().replace("\\", "/") + "/" + filename;
-        } catch (IOException e) {
-            log.warn("Gagal simpan file {}: {}", file.getOriginalFilename(), e.getMessage());
-            return "/uploads/" + subfolder + "/" + file.getOriginalFilename();
+            // Validasi + simpan (PDF diizinkan bila allowPdf) — direktori dibuat otomatis
+            return fileStorageService.saveFile(file, subfolder, allowPdf);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            // Validasi file gagal (format/ukuran) -> 400 terstruktur, bukan 500
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    e.getMessage() != null ? e.getMessage() : "File tidak valid");
         }
     }
 }

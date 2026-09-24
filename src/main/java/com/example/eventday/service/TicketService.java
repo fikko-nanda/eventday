@@ -178,6 +178,14 @@ public class TicketService {
             return "TIKET_SUDAH_DIPAKAI";
         }
 
+        if ("REFUNDED".equalsIgnoreCase(ticket.getCheckInStatus())) {
+            return "TIKET_SUDAH_DIREFUNDED";
+        }
+
+        if ("REVOKED".equalsIgnoreCase(ticket.getCheckInStatus())) {
+            return "TIKET_DIREVOKE";
+        }
+
         ticket.setCheckInStatus("CHECKED_IN");
         ticket.setCheckInAt(LocalDateTime.now());
         ticketItemRepository.save(ticket);

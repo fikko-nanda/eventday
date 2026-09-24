@@ -77,11 +77,14 @@ public class SecurityConfig {
                         // Endpoint Scan Tiket (Admin / Organizer)
                         .requestMatchers("/api/tickets/scan", "/api/v1/tickets/scan").hasAnyRole("ADMIN", "ORGANIZER")
 
-                        // Registrasi Event Organizer (Publik - bisa diakses tanpa login atau setelah login sebagai CUSTOMER)
-                        .requestMatchers(HttpMethod.POST, "/api/organizer/register").permitAll()
+                         // Registrasi Event Organizer (Publik - bisa diakses tanpa login atau setelah login sebagai CUSTOMER)
+                         .requestMatchers(HttpMethod.POST, "/api/organizer/register").permitAll()
+                         .requestMatchers(HttpMethod.POST, "/api/organizer/documents/upload").permitAll()
+                         .requestMatchers(HttpMethod.POST, "/api/organizer/profile/upload-portfolio").permitAll()
+                         .requestMatchers(HttpMethod.POST, "/api/organizer/profile/upload-deed").permitAll()
 
-                        // Modul Organizer - semua endpoint butuh role ORGANIZER atau ADMIN (kecuali register)
-                        .requestMatchers("/api/organizer/**").hasAnyRole("ORGANIZER", "ADMIN")
+                         // Modul Organizer - semua endpoint butuh role ORGANIZER atau ADMIN (kecuali register & upload)
+                         .requestMatchers("/api/organizer/**").hasAnyRole("ORGANIZER", "ADMIN")
 
                         // Modul Admin
                         .requestMatchers("/admin/**", "/api/admin/**", "/api/v1/admin/**").hasRole("ADMIN")

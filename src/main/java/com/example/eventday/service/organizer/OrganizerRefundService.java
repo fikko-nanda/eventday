@@ -1,8 +1,13 @@
 package com.example.eventday.service.organizer;
 
 import com.example.eventday.entity.Organizer;
+import com.example.eventday.entity.Order;
 import com.example.eventday.entity.RefundRequestEntity;
+import com.example.eventday.entity.TicketItem;
+import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.RefundRepository;
+import com.example.eventday.repository.TicketItemRepository;
+import com.example.eventday.repository.TicketTierRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -22,10 +27,13 @@ public class OrganizerRefundService {
 
     private final OrganizerHelperService helperService;
     private final RefundRepository refundRepository;
+    private final OrderRepository orderRepository;
+    private final TicketItemRepository ticketItemRepository;
+    private final TicketTierRepository ticketTierRepository;
 
     public List<Map<String, Object>> getRefundRequests() {
         Organizer org = helperService.resolveCurrentOrganizer();
-        List<RefundRequestEntity> list = refundRepository.findByOrganizerId(org.getOrganizerId());
+        List<RefundRequestEntity> list = refundRepository.findByOrganizerIdAndOrderIdNotNull(org.getOrganizerId());
 
         if (list == null || list.isEmpty()) {
             return Collections.emptyList();
@@ -59,6 +67,10 @@ public class OrganizerRefundService {
         RefundRequestEntity r = refundRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pengajuan refund tidak ditemukan"));
 
+        if (r.getOrderId() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Data bukan refund tiket");
+        }
+
         if (r.getOrganizerId() == null || !r.getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik tiket/event ini");
         }
@@ -91,6 +103,10 @@ public class OrganizerRefundService {
         RefundRequestEntity r = refundRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Data refund tidak ditemukan"));
 
+        if (r.getOrderId() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Data bukan refund tiket");
+        }
+
         if (r.getOrganizerId() == null || !r.getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Tidak memiliki hak atas event ini");
         }
@@ -118,11 +134,49 @@ public class OrganizerRefundService {
         r.setUpdatedAt(LocalDateTime.now());
         refundRepository.save(r);
 
+        if ("APPROVED".equals(newStatus)) {
+            triggerRefundPayment(r);
+        }
+
         Map<String, Object> res = new HashMap<>();
         res.put("refund_id", r.getRefundId().toString());
         res.put("status", r.getStatus());
         res.put("admin_note", r.getAdminNote());
         res.put("processed_at", r.getProcessedAt() != null ? r.getProcessedAt().toString() : null);
         return res;
+    }
+
+    private void triggerRefundPayment(RefundRequestEntity r) {
+        Order order = orderRepository.findById(r.getOrderId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order terkait tidak ditemukan"));
+
+        if (!"PAID".equalsIgnoreCase(order.getStatus())) {
+            log.warn("Refund {} tidak bisa diproses: order status {}", r.getRefundId(), order.getStatus());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Refund hanya bisa diproses untuk order berstatus PAID (saat ini: " + order.getStatus() + ")");
+        }
+
+        order.setStatus("REFUNDED");
+        order.setUpdatedAt(LocalDateTime.now());
+        orderRepository.save(order);
+
+        if (order.getTicketTier() != null && order.getQuantity() != null) {
+            ticketTierRepository.incrementAvailableQuota(order.getTicketTier().getTierId(), order.getQuantity());
+            log.info("Kuota tiket dikembalikan {} untuk tier {}", order.getQuantity(), order.getTicketTier().getTierId());
+        }
+
+        List<TicketItem> tickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
+        for (TicketItem t : tickets) {
+            if ("CHECKED_IN".equalsIgnoreCase(t.getCheckInStatus())) {
+                log.warn("Tiket {} sudah CHECKED_IN, tidak diubah", t.getTicketItemId());
+                continue;
+            }
+            t.setCheckInStatus("REFUNDED");
+            t.setUpdatedAt(LocalDateTime.now());
+            ticketItemRepository.save(t);
+        }
+
+        log.info("Refund payment triggered: order {} -> REFUNDED, {} tiket di-revoke, kuota dikembalikan",
+                order.getOrderId(), tickets.size());
     }
 }

@@ -31,6 +31,12 @@ public class Organizer {
     @Column(name = "akta_perusahaan", length = 255, columnDefinition = "VARCHAR(255)")
     private String aktaPerusahaan;
 
+    @Column(name = "cv_url", length = 255, columnDefinition = "VARCHAR(255)")
+    private String cvUrl;
+
+    @Column(name = "portfolio_url", length = 255, columnDefinition = "VARCHAR(255)")
+    private String portfolioUrl;
+
     @Column(name = "bank_name", length = 50, columnDefinition = "VARCHAR(50)")
     private String bankName;
 

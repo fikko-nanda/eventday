@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -23,13 +24,72 @@ public class OrganizerController {
 
     @PostMapping(value = "/register", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Map<String, Object>>> registerOrganizer(
-            @RequestPart("data") Map<String, Object> request,
+            @RequestPart(value = "data", required = false) String dataJson,
+            @RequestParam Map<String, String> allParams,
             @RequestParam(value = "cvFile", required = false) MultipartFile cvFile,
+            @RequestParam(value = "cv", required = false) MultipartFile cvAlias,
             @RequestParam(value = "portfolio", required = false) MultipartFile portfolioFile,
+            @RequestParam(value = "portfolioFile", required = false) MultipartFile portfolioAlias,
             @RequestParam(value = "aktaFile", required = false) MultipartFile aktaFile,
+            @RequestParam(value = "akta", required = false) MultipartFile aktaAlias,
+            @RequestParam(value = "companyDeed", required = false) MultipartFile companyDeedFile,
             @RequestParam(value = "aktaPerusahaan", required = false) MultipartFile aktaPerusahaanFile) {
-        Map<String, Object> data = organizerService.registerOrganizer(request, cvFile, portfolioFile, aktaFile, aktaPerusahaanFile);
+
+        // 1. Parse part "data" sebagai JSON String (toleran content-type octet-stream/json)
+        Map<String, Object> request = new HashMap<>();
+        if (dataJson != null && !dataJson.isBlank()) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(dataJson, Map.class);
+                request.putAll(parsed);
+            } catch (Exception e) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.badRequest("Field 'data' bukan JSON valid"));
+            }
+        }
+
+        // 2. Masukkan semua field teks multipart (key apa pun) tanpa menimpa data JSON
+        for (Map.Entry<String, String> e : allParams.entrySet()) {
+            request.putIfAbsent(e.getKey(), e.getValue());
+        }
+
+        // 3. Alias normalization -> key kanonik (camelCase & snake_case frontend)
+        fillAlias(request, "name", "organizer_name", "nama", "namaEo", "nama_eo");
+        fillAlias(request, "npwp_number", "npwp", "npwpNumber");
+        fillAlias(request, "bank_name", "bankName");
+        fillAlias(request, "bank_account_number", "account_number", "bankAccountNumber");
+
+        // 4. File: ambil non-kosong pertama di antara alias tiap slot (semua required=false)
+        MultipartFile cv = firstFile(cvFile, cvAlias);
+        MultipartFile portfolio = firstFile(portfolioFile, portfolioAlias);
+        MultipartFile akta = firstFile(aktaFile, aktaAlias, companyDeedFile, aktaPerusahaanFile);
+
+        Map<String, Object> data = organizerService.registerOrganizer(request, cv, portfolio, null, akta);
         return ResponseEntity.ok(ApiResponse.ok("Pendaftaran Event Organizer berhasil dikirim", data));
+    }
+
+    private static void fillAlias(Map<String, Object> target, String canonical, String... aliases) {
+        Object existing = target.get(canonical);
+        if (existing != null && !String.valueOf(existing).isBlank()) {
+            return;
+        }
+        for (String key : aliases) {
+            String v = target.get(key) != null ? String.valueOf(target.get(key)) : null;
+            if (v != null && !v.isBlank()) {
+                target.put(canonical, v);
+                return;
+            }
+        }
+    }
+
+    private static MultipartFile firstFile(MultipartFile... files) {
+        for (MultipartFile f : files) {
+            if (f != null && !f.isEmpty()) {
+                return f;
+            }
+        }
+        return null;
     }
 
     @PostMapping("/documents/upload")
