@@ -2,10 +2,12 @@ package com.example.eventday.service;
 
 import com.example.eventday.dto.*;
 import com.example.eventday.entity.Order;
+import com.example.eventday.event.OrderCreatedEvent;
 import com.example.eventday.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +29,7 @@ public class PaymentService {
     private final TicketService ticketService;
     private final EmailService emailService;
     private final OrderService orderService;
+    private final ApplicationEventPublisher eventPublisher; // Injeksi Publisher Event
 
     @Value("${midtrans.server-key:}")
     private String serverKey;
@@ -41,7 +44,6 @@ public class PaymentService {
         int quantity = order.getQuantity() != null ? order.getQuantity() : 0;
         BigDecimal subtotal = pricePerTicket.multiply(BigDecimal.valueOf(quantity));
         
-        // Gunakan Full UUID agar webhook Midtrans dapat mem-parse kembali ID dengan benar
         String orderNumber = "ORD-" + order.getOrderId().toString();
 
         return CheckoutSummaryResponse.builder()
@@ -115,6 +117,9 @@ public class PaymentService {
         }
         orderRepository.save(order);
 
+        // Memicu Event agar saldo EO diperbarui otomatis
+        eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
+
         log.info("Order ID {} berhasil diubah menjadi PAID via verifikasi manual", orderIdStr);
 
         try {
@@ -167,7 +172,6 @@ public class PaymentService {
             }
         }
 
-        // Hapus prefix "ORD-" agar mendapatkan String UUID utuh
         String cleanUUIDStr = orderIdStr.replace("ORD-", "").trim();
         UUID orderId;
         try {
@@ -183,7 +187,6 @@ public class PaymentService {
             return;
         }
 
-        // Cek agar tidak memproses ulang transaksi yang sudah selesai/batal
         if ("PAID".equalsIgnoreCase(order.getStatus())) {
             log.info("Order ID {} sudah berstatus PAID. Notifikasi duplikat diabaikan.", orderIdStr);
             return;
@@ -204,10 +207,13 @@ public class PaymentService {
                 order.setTransactionIdGateway(transactionId);
             }
             orderRepository.save(order);
+
+            // Memicu Event agar saldo EO diperbarui otomatis
+            eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
+
             log.info("Order ID {} resmi PAID", orderIdStr);
 
             try {
-                // Generasi record tiket ke database
                 ticketService.generateTicketsForOrder(order);
                 log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
 

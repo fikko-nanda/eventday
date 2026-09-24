@@ -4,15 +4,14 @@ import com.example.eventday.dto.admin.PayoutDetailResponse;
 import com.example.eventday.dto.admin.PayoutResponse;
 import com.example.eventday.dto.admin.UpdatePayoutStatusRequest;
 import com.example.eventday.entity.Organizer;
-import com.example.eventday.entity.RefundRequestEntity;
+import com.example.eventday.entity.OrganizerPayout;
+import com.example.eventday.repository.OrganizerPayoutRepository;
 import com.example.eventday.repository.OrganizerRepository;
-import com.example.eventday.repository.RefundRepository;
 import com.example.eventday.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -22,54 +21,44 @@ import java.util.stream.Collectors;
 @SuppressWarnings("null")
 public class AdminPayoutService {
 
-    private final RefundRepository refundRepository;
+    private final OrganizerPayoutRepository organizerPayoutRepository;
     private final OrganizerRepository organizerRepository;
     private final AuditLogService auditLogService;
 
     @Transactional(readOnly = true)
     public List<PayoutResponse> getAllPayouts(String statusFilter) {
-        List<RefundRequestEntity> payouts;
+        List<OrganizerPayout> payouts;
         if (statusFilter != null && !statusFilter.isBlank()) {
-            payouts = refundRepository.findPayoutsWithStatus(statusFilter.toUpperCase());
+            payouts = organizerPayoutRepository.findByStatusIgnoreCase(statusFilter);
         } else {
-            payouts = refundRepository.findAllPayoutsByOrderByCreatedAtDesc();
+            payouts = organizerPayoutRepository.findAllByOrderByCreatedAtDesc();
         }
         return payouts.stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public PayoutDetailResponse getDetail(UUID payoutId) {
-        RefundRequestEntity payout = refundRepository.findById(payoutId)
+        OrganizerPayout payout = organizerPayoutRepository.findById(payoutId)
                 .orElseThrow(() -> new RuntimeException("Pengajuan pencairan tidak ditemukan!"));
-        if (payout.getOrderId() != null) {
-            throw new RuntimeException("Data adalah refund customer, bukan payout");
-        }
         return mapToDetailResponse(payout);
     }
 
     @Transactional
     public PayoutDetailResponse updateStatus(UUID payoutId, UpdatePayoutStatusRequest request, UUID adminId) {
-        RefundRequestEntity payout = refundRepository.findById(payoutId)
+        OrganizerPayout payout = organizerPayoutRepository.findById(payoutId)
                 .orElseThrow(() -> new RuntimeException("Pengajuan pencairan tidak ditemukan!"));
 
-        if (payout.getOrderId() != null) {
-            throw new RuntimeException("Data adalah refund customer, bukan payout");
-        }
 
         String newStatus = request.getStatus().toUpperCase();
         payout.setStatus(newStatus);
-        payout.setAdminNote(request.getAdminNote());
-        payout.setUpdatedAt(LocalDateTime.now());
 
-        if ("APPROVED".equalsIgnoreCase(newStatus)) {
-            payout.setProcessedAt(LocalDateTime.now());
-        }
+        organizerPayoutRepository.save(payout);
 
-        refundRepository.save(payout);
+        Organizer organizer = payout.getOrganizer();
+        String organizerName = organizer != null ? organizer.getNameOrganizer() : getOrganizerName(payout.getOrganizer() != null ? payout.getOrganizer().getOrganizerId() : null);
 
-        Organizer organizer = organizerRepository.findById(payout.getOrganizerId()).orElse(null);
         auditLogService.log(adminId, "SUPERADMIN", "UPDATE_PAYOUT_STATUS",
-                "Pengajuan payout " + payoutId + " organizer " + (organizer != null ? organizer.getNameOrganizer() : payout.getOrganizerId())
+                "Pengajuan payout " + payoutId + " organizer " + organizerName
                         + " diubah menjadi: " + newStatus
                         + (request.getAdminNote() != null ? " (Catatan: " + request.getAdminNote() + ")" : ""));
 
@@ -78,11 +67,8 @@ public class AdminPayoutService {
 
     @Transactional(readOnly = true)
     public PayoutDetailResponse getReconciliationDocument(UUID payoutId) {
-        RefundRequestEntity payout = refundRepository.findById(payoutId)
+        OrganizerPayout payout = organizerPayoutRepository.findById(payoutId)
                 .orElseThrow(() -> new RuntimeException("Pengajuan pencairan tidak ditemukan!"));
-        if (payout.getOrderId() != null) {
-            throw new RuntimeException("Data adalah refund customer, bukan payout");
-        }
         return mapToDetailResponse(payout);
     }
 
@@ -110,41 +96,47 @@ public class AdminPayoutService {
         return csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    private PayoutResponse mapToResponse(RefundRequestEntity r) {
+    private PayoutResponse mapToResponse(OrganizerPayout p) {
+        UUID organizerId = p.getOrganizer() != null ? p.getOrganizer().getOrganizerId() : null;
+        String organizerName = p.getOrganizer() != null ? p.getOrganizer().getNameOrganizer() : getOrganizerName(organizerId);
+
         return PayoutResponse.builder()
-                .payoutId(r.getRefundId())
-                .organizerId(r.getOrganizerId())
-                .nameOrganizer(getOrganizerName(r.getOrganizerId()))
-                .amount(r.getAmount())
-                .bankName(r.getBankName())
-                .accountNumber(r.getBankAccountNumber())
-                .accountHolder(r.getAccountHolder())
-                .status(r.getStatus())
-                .rejectionReason(r.getRejectionReason())
-                .adminNote(r.getAdminNote())
-                .createdAt(r.getCreatedAt())
-                .updatedAt(r.getUpdatedAt())
-                .reconciliationDocumentUrl(r.getReconciliationDocumentUrl())
+                .payoutId(p.getPayoutId())
+                .organizerId(organizerId)
+                .nameOrganizer(organizerName)
+                .amount(p.getAmount())
+                .bankName(p.getBankName())
+                .accountNumber(p.getBankAccountNumber())
+                .accountHolder(p.getAccountHolder())
+                .status(p.getStatus())
+                .rejectionReason(null)
+                .adminNote(null)
+                .createdAt(p.getCreatedAt())
+                .updatedAt(p.getUpdatedAt())
+                .reconciliationDocumentUrl(null)
                 .build();
     }
 
-    private PayoutDetailResponse mapToDetailResponse(RefundRequestEntity r) {
+    private PayoutDetailResponse mapToDetailResponse(OrganizerPayout p) {
+        UUID organizerId = p.getOrganizer() != null ? p.getOrganizer().getOrganizerId() : null;
+        String organizerName = p.getOrganizer() != null ? p.getOrganizer().getNameOrganizer() : getOrganizerName(organizerId);
+
         return PayoutDetailResponse.builder()
-                .payoutId(r.getRefundId())
-                .organizerId(r.getOrganizerId())
-                .nameOrganizer(getOrganizerName(r.getOrganizerId()))
+                .payoutId(p.getPayoutId())
+                .organizerId(organizerId)
+                .nameOrganizer(organizerName)
                 .userEmail(null)
                 .userPhone(null)
-                .amount(r.getAmount())
-                .bankName(r.getBankName())
-                .accountNumber(r.getBankAccountNumber())
-                .accountHolder(r.getAccountHolder())
-                .status(r.getStatus())
-                .rejectionReason(r.getRejectionReason())
-                .adminNote(r.getAdminNote())
-                .reconciliationDocumentUrl(r.getReconciliationDocumentUrl())
-                .createdAt(r.getCreatedAt())
-                .updatedAt(r.getUpdatedAt())
+                .amount(p.getAmount())
+                .bankName(p.getBankName())
+                .accountNumber(p.getBankAccountNumber())
+                .accountHolder(p.getAccountHolder())
+                .status(p.getStatus())
+                .rejectionReason(null)
+                .adminNote(null)
+                .reconciliationDocumentUrl(null)
+                .createdAt(p.getCreatedAt())
+                .updatedAt(p.getUpdatedAt())
                 .build();
     }
 
