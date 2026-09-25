@@ -21,7 +21,9 @@ jobs:
           cache: maven
 
       - name: Build Executable JAR with Maven
-        run: ./mvnw clean package -DskipTests
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests
 
       - name: Copy JAR to VPS via SCP
         uses: appleboy/scp-action@v0.1.7
