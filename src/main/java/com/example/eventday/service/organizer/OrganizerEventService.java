@@ -173,14 +173,10 @@ public class OrganizerEventService {
     }
 
     @Transactional
-    public Map<String, Object> updateEvent(Map<String, Object> payload, MultipartFile bannerFile) {
+    public Map<String, Object> updateEvent(UUID eventId, Map<String, Object> payload, MultipartFile bannerFile) {
         Organizer org = helperService.resolveCurrentOrganizer();
-        String idStr = String.valueOf(payload.getOrDefault("eventId", payload.getOrDefault("event_id", payload.get("id"))));
-        if (idStr == null || "null".equals(idStr)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Event ID wajib diisi");
-        }
-
-        Event event = eventRepository.findById(UUID.fromString(idStr))
+        
+        Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
 
         // Ownership Validation
@@ -201,22 +197,60 @@ public class OrganizerEventService {
             event.setTitle(newTitle);
         }
 
-        if (payload.containsKey("description")) event.setDescription((String) payload.get("description"));
-        if (payload.containsKey("category")) event.setCategory((String) payload.get("category"));
-        if (payload.containsKey("venueName")) event.setVenueName((String) payload.get("venueName"));
-        if (payload.containsKey("venue_name")) event.setVenueName((String) payload.get("venue_name"));
-        if (payload.containsKey("bannerUrl")) event.setBannerUrl((String) payload.get("bannerUrl"));
-        if (payload.containsKey("banner_url")) event.setBannerUrl((String) payload.get("banner_url"));
-        if (payload.containsKey("facility")) event.setFacility((String) payload.get("facility"));
-        if (payload.containsKey("lineup")) event.setLineup((String) payload.get("lineup"));
+        if (payload.containsKey("description")) event.setDescription(str(payload.get("description")));
+        if (payload.containsKey("category")) event.setCategory(str(payload.get("category")));
+        if (payload.containsKey("venueName")) event.setVenueName(str(payload.get("venueName")));
+        if (payload.containsKey("venue_name")) event.setVenueName(str(payload.get("venue_name")));
+        if (payload.containsKey("location") && !payload.containsKey("venueName") && !payload.containsKey("venue_name")) {
+            event.setVenueName(str(payload.get("location")));
+        }
+        if (payload.containsKey("bannerUrl")) event.setBannerUrl(str(payload.get("bannerUrl")));
+        if (payload.containsKey("banner_url")) event.setBannerUrl(str(payload.get("banner_url")));
+        if (payload.containsKey("facility")) event.setFacility(str(payload.get("facility")));
+        if (payload.containsKey("facilities") && payload.get("facilities") instanceof List<?> facilities) {
+            event.setFacility(facilities.stream().filter(Objects::nonNull).map(String::valueOf)
+                    .collect(Collectors.joining(", ")));
+        }
+        if (payload.containsKey("lineup")) event.setLineup(str(payload.get("lineup")));
 
-        if (payload.containsKey("startDate") || payload.containsKey("start_date")) {
-            LocalDateTime sd = parseDateTime(payload.get("startDate") != null ? payload.get("startDate") : payload.get("start_date"));
+        if (payload.containsKey("startDate") || payload.containsKey("start_date") || payload.containsKey("eventDate")) {
+            Object raw = payload.get("startDate") != null ? payload.get("startDate")
+                    : (payload.get("start_date") != null ? payload.get("start_date") : payload.get("eventDate"));
+            LocalDateTime sd = parseDateTime(raw);
             if (sd != null) event.setStartDate(sd);
         }
         if (payload.containsKey("endDate") || payload.containsKey("end_date")) {
             LocalDateTime ed = parseDateTime(payload.get("endDate") != null ? payload.get("endDate") : payload.get("end_date"));
             if (ed != null) event.setEndDate(ed);
+        }
+
+        // Update ticket tiers if provided (null/kosong → pertahankan tier lama)
+        Object tiersObj = payload.get("ticketTiers") != null ? payload.get("ticketTiers") : payload.get("ticket_tiers");
+        if (tiersObj instanceof List<?> tiersRaw && !tiersRaw.isEmpty()) {
+            // Delete existing tiers
+            ticketTierRepository.deleteByEvent_EventId(event.getEventId());
+
+            for (Object item : tiersRaw) {
+                if (!(item instanceof Map<?, ?> rawMap)) continue;
+                @SuppressWarnings("unchecked")
+                Map<String, Object> tierData = (Map<String, Object>) rawMap;
+
+                TicketTier tier = new TicketTier();
+                tier.setEvent(event);
+                Object nameObj = tierData.get("tier_name") != null ? tierData.get("tier_name")
+                        : (tierData.get("tierName") != null ? tierData.get("tierName") : tierData.get("name"));
+                tier.setTierName(nameObj != null ? String.valueOf(nameObj) : "Regular");
+                tier.setPrice(parseBigDecimal(tierData.get("price")));
+                int quota = parseIntSafe(tierData.get("totalQuota") != null ? tierData.get("totalQuota")
+                        : (tierData.get("quota") != null ? tierData.get("quota") : tierData.get("total_quota")), 0);
+                tier.setTotalQuota(quota);
+                int available = parseIntSafe(tierData.get("availableQuota") != null ? tierData.get("availableQuota")
+                        : tierData.get("available_quota") != null ? tierData.get("available_quota") : quota, quota);
+                tier.setAvailableQuota(available);
+                tier.setCreatedAt(LocalDateTime.now());
+                tier.setCreateBy(helperService.currentUserId());
+                ticketTierRepository.save(tier);
+            }
         }
 
         event.setUpdatedAt(LocalDateTime.now());
@@ -299,6 +333,30 @@ public class OrganizerEventService {
             } catch (Exception ignored) {}
         }
         try { return LocalDateTime.parse(s); } catch (Exception e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Format tanggal tidak valid: " + raw); }
+    }
+
+    private String str(Object v) {
+        if (v == null) return null;
+        String s = String.valueOf(v);
+        return "null".equalsIgnoreCase(s) ? null : s;
+    }
+
+    private BigDecimal parseBigDecimal(Object v) {
+        if (v == null) return BigDecimal.ZERO;
+        try {
+            return new BigDecimal(String.valueOf(v).trim());
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private int parseIntSafe(Object v, int fallback) {
+        if (v == null) return fallback;
+        try {
+            return Integer.parseInt(String.valueOf(v).trim());
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private Map<String, Object> mapEventToResponse(Event event) {

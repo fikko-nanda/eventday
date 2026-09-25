@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -25,6 +26,7 @@ public class OrganizerDashboardService {
     private final EventRepository eventRepository;
     private final OrderRepository orderRepository;
     private final TicketItemRepository ticketItemRepository;
+    private final OrganizerBalanceService balanceService;
 
     public Map<String, Object> getOrganizerDashboard() {
         UUID uid = helperService.currentUserId();
@@ -35,12 +37,8 @@ public class OrganizerDashboardService {
                 List<Event> myEvents = eventRepository.findByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId());
                 long activeEvents = myEvents.stream().filter(e -> "PUBLISHED".equals(e.getStatus())).count();
 
-                double revenue = orderRepository.findAll().stream()
-                        .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
-                                && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
-                        .filter(o -> "PAID".equals(o.getStatus()) || "WAITING_PAYMENT".equals(o.getStatus()))
-                        .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
-                        .sum();
+                Map<String, BigDecimal> breakdown = balanceService.calculateBalanceBreakdown(org.getOrganizerId());
+                BigDecimal available = breakdown.get("available_balance");
 
                 long ticketsSold = orderRepository.findAll().stream()
                         .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
@@ -49,7 +47,11 @@ public class OrganizerDashboardService {
                         .sum();
 
                 Map<String, Object> metrics = new HashMap<>();
-                metrics.put("total_revenue", revenue);
+                metrics.put("total_revenue", available);
+                metrics.put("gross_revenue", breakdown.get("gross_revenue"));
+                metrics.put("total_refund", breakdown.get("total_refund"));
+                metrics.put("total_payout", breakdown.get("total_payout"));
+                metrics.put("available_balance", available);
                 metrics.put("active_events", activeEvents);
                 metrics.put("total_events", myEvents.size());
                 metrics.put("tickets_sold", ticketsSold);
@@ -59,9 +61,9 @@ public class OrganizerDashboardService {
             }
         }
         Map<String, Object> metrics = new HashMap<>();
-        metrics.put("total_revenue", 42500000);
-        metrics.put("active_events", 2);
-        metrics.put("tickets_sold", 1248);
+        metrics.put("total_revenue", BigDecimal.ZERO);
+        metrics.put("active_events", 0);
+        metrics.put("tickets_sold", 0);
         metrics.put("mock", true);
         return metrics;
     }
@@ -69,18 +71,14 @@ public class OrganizerDashboardService {
     public Map<String, Object> getOrganizerDashboardMetrics() {
         Organizer org = helperService.resolveCurrentOrganizer();
         if (org == null) {
-            return Map.of("total_revenue", 0, "active_events", 0, "total_events", 0, "tickets_sold", 0);
+            return Map.of("total_revenue", BigDecimal.ZERO, "active_events", 0, "total_events", 0, "tickets_sold", 0);
         }
 
         long activeEvents = eventRepository.countByOrganizer_OrganizerIdAndStatus(org.getOrganizerId(), "PUBLISHED");
         long totalEvents = eventRepository.countByOrganizer_OrganizerId(org.getOrganizerId());
 
-        double revenue = orderRepository.findAll().stream()
-                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
-                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
-                .filter(o -> "PAID".equals(o.getStatus()))
-                .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
-                .sum();
+        Map<String, BigDecimal> breakdown = balanceService.calculateBalanceBreakdown(org.getOrganizerId());
+        BigDecimal available = breakdown.get("available_balance");
 
         long ticketsSold = orderRepository.findAll().stream()
                 .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
@@ -89,7 +87,11 @@ public class OrganizerDashboardService {
                 .sum();
 
         Map<String, Object> metrics = new HashMap<>();
-        metrics.put("total_revenue", revenue);
+        metrics.put("total_revenue", available);
+        metrics.put("gross_revenue", breakdown.get("gross_revenue"));
+        metrics.put("total_refund", breakdown.get("total_refund"));
+        metrics.put("total_payout", breakdown.get("total_payout"));
+        metrics.put("available_balance", available);
         metrics.put("active_events", activeEvents);
         metrics.put("total_events", totalEvents);
         metrics.put("tickets_sold", ticketsSold);

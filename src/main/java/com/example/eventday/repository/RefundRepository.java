@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,4 +46,11 @@ public interface RefundRepository extends JpaRepository<RefundRequestEntity, UUI
 
     @Query("SELECT r FROM RefundRequestEntity r ORDER BY r.createdAt DESC")
     List<RefundRequestEntity> findAllByOrderByCreatedAtDesc();
+
+    // ===== ORGANIZER FINANCE: Net balance support =====
+    @Query("SELECT COALESCE(SUM(r.amount), 0) FROM RefundRequestEntity r WHERE r.organizerId = :organizerId AND r.status = 'APPROVED' AND r.orderId IS NOT NULL")
+    BigDecimal sumApprovedRefundByOrganizer(@Param("organizerId") UUID organizerId);
+
+    @Query("SELECT COALESCE(SUM(r.amount), 0) FROM RefundRequestEntity r WHERE r.organizerId = :organizerId AND r.status IN ('APPROVED','SUCCESS','COMPLETED') AND r.orderId IS NULL")
+    BigDecimal sumApprovedPayoutLegacyByOrganizer(@Param("organizerId") UUID organizerId);
 }

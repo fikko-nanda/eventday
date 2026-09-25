@@ -28,6 +28,7 @@ public class OrganizerPayoutService {
     private final OrderRepository orderRepository;
     private final OrganizerPayoutRepository organizerPayoutRepository;
     private final EventRepository eventRepository;
+    private final OrganizerBalanceService balanceService;
 
     public List<Map<String, Object>> getBankAccounts() {
         UUID uid = helperService.currentUserId();
@@ -59,27 +60,32 @@ public class OrganizerPayoutService {
         if (uid != null) {
             Optional<Organizer> orgOpt = organizerRepository.findByUserUserId(uid);
             if (orgOpt.isPresent()) {
-                double totalSales = orderRepository.findAll().stream()
-                        .filter(o -> o.getEvent() != null && o.getEvent().getEventId().toString().equals(String.valueOf(eventId))
-                                || eventId == null)
-                        .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer().getOrganizerId().equals(orgOpt.get().getOrganizerId()))
-                        .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
-                        .sum();
+                UUID organizerId = orgOpt.get().getOrganizerId();
+                Map<String, BigDecimal> breakdown = balanceService.calculateBalanceBreakdown(organizerId);
+                BigDecimal gross = breakdown.get("gross_revenue");
+                BigDecimal available = breakdown.get("available_balance");
+                BigDecimal pending = balanceService.calculatePendingPayout(organizerId);
                 Map<String, Object> balance = new HashMap<>();
                 balance.put("event_id", eventId);
-                balance.put("organizer_id", orgOpt.get().getOrganizerId().toString());
-                balance.put("total_sales", totalSales);
-                balance.put("withdrawable_balance", totalSales * 0.9);
-                balance.put("pending_payout", totalSales * 0.1);
+                balance.put("organizer_id", organizerId.toString());
+                balance.put("total_sales", gross);
+                balance.put("gross_revenue", gross);
+                balance.put("total_refund", breakdown.get("total_refund"));
+                balance.put("total_payout", breakdown.get("total_payout"));
+                balance.put("withdrawable_balance", available);
+                balance.put("available_balance", available);
+                balance.put("pending_payout", pending);
                 balance.put("currency", "IDR");
                 return balance;
             }
         }
         Map<String, Object> balance = new HashMap<>();
         balance.put("event_id", eventId);
-        balance.put("total_sales", 50000000);
-        balance.put("withdrawable_balance", 45000000);
-        balance.put("pending_payout", 5000000);
+        balance.put("total_sales", BigDecimal.ZERO);
+        balance.put("gross_revenue", BigDecimal.ZERO);
+        balance.put("withdrawable_balance", BigDecimal.ZERO);
+        balance.put("available_balance", BigDecimal.ZERO);
+        balance.put("pending_payout", BigDecimal.ZERO);
         balance.put("currency", "IDR");
         balance.put("mock", true);
         return balance;
@@ -127,13 +133,24 @@ public class OrganizerPayoutService {
         }
 
         if (organizer != null && request.containsKey("amount")) {
+            BigDecimal amount;
             try {
-                BigDecimal amount = new BigDecimal(String.valueOf(request.get("amount")));
-
+                amount = new BigDecimal(String.valueOf(request.get("amount")));
+            } catch (NumberFormatException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nominal payout tidak valid");
+            }
+            if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nominal payout harus lebih dari 0");
+            }
+            BigDecimal available = balanceService.calculateAvailableBalance(organizer.getOrganizerId());
+            if (amount.compareTo(available) > 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Nominal melebihi saldo tersedia (" + available + ")");
+            }
+            try {
                 OrganizerPayout entity = new OrganizerPayout();
                 entity.setOrganizer(organizer);
 
-                // Mengaitkan Event jika ada pada request body (camelCase / snake_case)
                 Object eventIdObj = request.getOrDefault("eventId", request.get("event_id"));
                 if (eventIdObj != null) {
                     try {
@@ -156,6 +173,8 @@ public class OrganizerPayoutService {
                 payout.put("status", entity.getStatus());
                 payout.put("organizer_id", organizer.getOrganizerId().toString());
                 return payout;
+            } catch (ResponseStatusException e) {
+                throw e;
             } catch (Exception e) {
                 log.warn("createPayout DB fail: {}", e.getMessage());
             }

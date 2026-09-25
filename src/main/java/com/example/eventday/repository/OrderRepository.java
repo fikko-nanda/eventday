@@ -6,6 +6,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -28,4 +32,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     // ===== MODUL SUPERADMIN: DASHBOARD =====
     List<Order> findTop10ByOrderByCreatedAtDesc();
     List<Order> findByStatusInAndExpiredAtBefore(List<String> statuses, LocalDateTime now);
+
+    // ===== ORGANIZER FINANCE: Gross Revenue (PAID only, milik organizer) =====
+    @Query("SELECT COALESCE(SUM(o.totalAmount), 0) FROM Order o WHERE o.status = 'PAID' AND o.event.organizer.organizerId = :organizerId")
+    BigDecimal sumPaidRevenueByOrganizer(@Param("organizerId") UUID organizerId);
 }
