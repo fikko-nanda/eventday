@@ -16,6 +16,10 @@ public interface TicketTierRepository extends JpaRepository<TicketTier, UUID> {
 
     List<TicketTier> findByEvent(Event event);
 
+    List<TicketTier> findByEvent_EventId(UUID eventId);
+
+    void deleteByEvent_EventId(UUID eventId);
+
     @Modifying
     @Query("UPDATE TicketTier t SET t.availableQuota = t.availableQuota - :qty " +
            "WHERE t.tierId = :tierId AND t.availableQuota >= :qty")
