@@ -41,12 +41,20 @@ public class TicketController {
         return ResponseEntity.ok(ApiResponse.success("Daftar tiket user", tickets));
     }
 
-    // Endpoint baru untuk ambil tiket per order (mencegah N+1 calls di frontend)
     @GetMapping("/by-order/{orderId}")
     public ResponseEntity<ApiResponse<List<TicketDetailResponse>>> getTicketsByOrder(
-            @PathVariable UUID orderId) {
-        List<TicketDetailResponse> tickets = ticketService.getTicketsByOrderId(orderId);
-        return ResponseEntity.ok(ApiResponse.success("Daftar tiket order berhasil dimuat", tickets));
+            @PathVariable String orderId) {
+        try {
+            UUID orderUuid = UUID.fromString(orderId.trim());
+            List<TicketDetailResponse> tickets = ticketService.getTicketsByOrderId(orderUuid);
+            return ResponseEntity.ok(ApiResponse.success("Daftar tiket order berhasil dimuat", tickets));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.badRequest("Format Order ID tidak valid"));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.badRequest("Gagal memuat tiket: " + e.getMessage()));
+        }
     }
 
     // Anti-IDOR: Validasi pemilik tiket atau role Panitia/Admin
