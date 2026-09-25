@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping({ "/api/tickets", "/api/v1/tickets" })
@@ -38,6 +39,14 @@ public class TicketController {
 
         List<TicketItem> tickets = ticketService.getTicketsByEmail(targetEmail);
         return ResponseEntity.ok(ApiResponse.success("Daftar tiket user", tickets));
+    }
+
+    // Endpoint baru untuk ambil tiket per order (mencegah N+1 calls di frontend)
+    @GetMapping("/by-order/{orderId}")
+    public ResponseEntity<ApiResponse<List<TicketDetailResponse>>> getTicketsByOrder(
+            @PathVariable UUID orderId) {
+        List<TicketDetailResponse> tickets = ticketService.getTicketsByOrderId(orderId);
+        return ResponseEntity.ok(ApiResponse.success("Daftar tiket order berhasil dimuat", tickets));
     }
 
     // Anti-IDOR: Validasi pemilik tiket atau role Panitia/Admin

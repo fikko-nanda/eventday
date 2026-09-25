@@ -107,6 +107,24 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
+    public List<TicketDetailResponse> getTicketsByOrderId(UUID orderId) {
+        if (orderId == null) {
+            return List.of();
+        }
+
+        List<TicketItem> tickets = ticketItemRepository.findByOrderOrderId(orderId);
+        if (tickets == null || tickets.isEmpty()) {
+            return List.of();
+        }
+
+        List<TicketDetailResponse> result = new ArrayList<>();
+        for (TicketItem ticket : tickets) {
+            result.add(getIssuedDetail(ticket.getTicketItemId().toString()));
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
     public TicketDetailResponse getIssuedDetail(String ticketCode) {
         UUID ticketItemId;
         try {
