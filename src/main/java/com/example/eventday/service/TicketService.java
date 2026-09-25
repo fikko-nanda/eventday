@@ -16,7 +16,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @SuppressWarnings("null")
@@ -112,14 +114,27 @@ public class TicketService {
             return List.of();
         }
 
-        List<TicketItem> tickets = ticketItemRepository.findByOrderOrderId(orderId);
+        List<TicketItem> tickets;
+        try {
+            tickets = ticketItemRepository.findByOrderOrderId(orderId);
+        } catch (Exception e) {
+            log.error("Gagal query ticketItem by orderId: {}", orderId, e);
+            return List.of();
+        }
+
         if (tickets == null || tickets.isEmpty()) {
             return List.of();
         }
 
         List<TicketDetailResponse> result = new ArrayList<>();
         for (TicketItem ticket : tickets) {
-            result.add(getIssuedDetail(ticket.getTicketItemId().toString()));
+            try {
+                if (ticket != null && ticket.getTicketItemId() != null) {
+                    result.add(getIssuedDetail(ticket.getTicketItemId().toString()));
+                }
+            } catch (Exception e) {
+                log.warn("Lewati tiket ID {} karena gagal di-parse: {}", ticket.getTicketItemId(), e.getMessage());
+            }
         }
         return result;
     }
