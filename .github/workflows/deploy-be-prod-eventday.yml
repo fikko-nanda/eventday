@@ -1,0 +1,50 @@
+name: Deploy Eventday Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 LTS
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build Executable JAR with Maven
+        run: ./mvnw clean package -DskipTests
+
+      - name: Copy JAR to VPS via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          source: "target/*.jar"
+          target: "/var/www/eventday-be/"
+          strip_components: 1
+
+      - name: Rename JAR & Restart Systemd Service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            # Standarisasi nama file JAR untuk dieksekusi oleh Systemd
+            mv /var/www/eventday-be/*.jar /var/www/eventday-be/eventday-backend.jar
+            
+            # Restart service backend secara otomatis
+            sudo systemctl restart eventday
+            sudo systemctl status eventday
