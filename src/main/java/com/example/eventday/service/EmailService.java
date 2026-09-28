@@ -21,12 +21,20 @@ public class EmailService {
     @Value("${app.mail.from-name:Eventday}")
     private String fromName;
 
+    // Helper untuk format pengirim: "Eventday <danu09gg@gmail.com>"
+    private String getFormattedFrom() {
+        if (fromName != null && !fromName.isBlank()) {
+            return String.format("%s <%s>", fromName, from);
+        }
+        return from;
+    }
+
     // 1. Kirim OTP Verifikasi Pendaftaran
     @Async
     public void sendOtpEmail(String to, String otpCode) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
+            message.setFrom(getFormattedFrom());
             message.setTo(to);
             message.setSubject("Eventday - Kode OTP Verifikasi");
             message.setText("Halo,\n\nKode OTP Anda adalah: " + otpCode + "\nBerlaku 5 menit.\n\nTerima kasih,\n" + fromName);
@@ -42,7 +50,7 @@ public class EmailService {
     public void sendResetPasswordEmail(String to, String code) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
+            message.setFrom(getFormattedFrom());
             message.setTo(to);
             message.setSubject("Eventday - Kode Reset Password");
             message.setText("Halo,\n\nKode reset password Anda adalah: " + code + "\nBerlaku 15 menit.\n\nJika tidak merasa meminta reset, abaikan email ini.\n\nTerima kasih,\n" + fromName);
@@ -58,7 +66,7 @@ public class EmailService {
     public void sendPasswordChangedNotification(String to) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
+            message.setFrom(getFormattedFrom());
             message.setTo(to);
             message.setSubject("Eventday - Keamanan Akun: Password Berhasil Diubah");
             message.setText("Halo,\n\nPassword akun Eventday Anda baru saja berhasil diubah.\n\nJika Anda tidak melakukan perubahan ini, segera hubungi admin atau lakukan reset password.\n\nTerima kasih,\n" + fromName);
@@ -74,7 +82,7 @@ public class EmailService {
     public void sendOrderConfirmationEmail(String to, String orderNumber, String eventTitle, int qty) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
+            message.setFrom(getFormattedFrom());
             message.setTo(to);
             message.setSubject("Eventday - Konfirmasi Pembayaran & E-Ticket: " + orderNumber);
             message.setText("Halo,\n\nPembayaran untuk pesanan " + orderNumber + " telah berhasil diverifikasi!\n\nDetail Pesanan:\n"
