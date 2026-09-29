@@ -1,6 +1,7 @@
 package com.example.eventday.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -27,6 +28,8 @@ public class CreateEventRequest {
     private String bannerUrl;
     @JsonAlias("facility")
     private List<String> facilities;
+    // Lineup fleksibel: terima array objek [{name, image}] ATAU string biasa
+    private JsonNode lineup;
     @JsonAlias("ticket_tiers")
     private List<TicketTierDto> ticketTiers;
     @JsonAlias("organizer_id")

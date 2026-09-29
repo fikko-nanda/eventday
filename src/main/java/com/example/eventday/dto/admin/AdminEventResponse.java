@@ -29,7 +29,8 @@ public class AdminEventResponse {
     private Boolean isFeatured;
     private String bannerUrl;
     private String facility;
-    private String lineup;
+    // Lineup fleksibel: list objek [{name, image}] agar FE langsung tampil rapi
+    private Object lineup;
     private List<TierInfo> ticketTiers;
     private SalesSummary salesSummary;
     private LocalDateTime createdAt;
@@ -54,6 +55,7 @@ public class AdminEventResponse {
     public static class SalesSummary {
         private Long totalOrders;
         private Long ticketsSold;
+        private Long totalCapacity;
         private BigDecimal revenuePaid;
         private BigDecimal revenuePending;
     }

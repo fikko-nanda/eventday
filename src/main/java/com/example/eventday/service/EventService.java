@@ -194,9 +194,18 @@ public class EventService {
             return List.of();
         }
         try {
+            // Coba parse sebagai JSON array dulu
             return new ObjectMapper().readValue(rawLineup, new TypeReference<List<EventDetailResponse.LineupItem>>() {});
         } catch (Exception e) {
-            return List.of();
+            // Fallback: pecah string koma jadi List<LineupItem>
+            return Arrays.stream(rawLineup.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(name -> EventDetailResponse.LineupItem.builder()
+                            .name(name)
+                            .image("")
+                            .build())
+                    .collect(Collectors.toList());
         }
     }
 }

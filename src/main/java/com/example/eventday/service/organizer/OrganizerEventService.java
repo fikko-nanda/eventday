@@ -7,6 +7,8 @@ import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.TicketTierRepository;
 import com.example.eventday.service.FileStorageService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -104,7 +106,7 @@ public class OrganizerEventService {
                 .venueName((String) payload.getOrDefault("venue_name", payload.getOrDefault("venueName", "TBA")))
                 .bannerUrl((String) payload.getOrDefault("banner_url", payload.get("bannerUrl")))
                 .facility(payload.get("facilities") != null ? String.join(", ", (List<String>) payload.get("facilities")) : "")
-                .lineup((String) payload.get("lineup"))
+                .lineup(normalizeLineup(payload.get("lineup")))
                 .startDate(start)
                 .endDate(end)
                 .status("DRAFT")
@@ -211,7 +213,7 @@ public class OrganizerEventService {
             event.setFacility(facilities.stream().filter(Objects::nonNull).map(String::valueOf)
                     .collect(Collectors.joining(", ")));
         }
-        if (payload.containsKey("lineup")) event.setLineup(str(payload.get("lineup")));
+        if (payload.containsKey("lineup")) event.setLineup(normalizeLineup(payload.get("lineup")));
 
         if (payload.containsKey("startDate") || payload.containsKey("start_date") || payload.containsKey("eventDate")) {
             Object raw = payload.get("startDate") != null ? payload.get("startDate")
@@ -359,6 +361,77 @@ public class OrganizerEventService {
         }
     }
 
+    // Normalisasi lineup SEBELUM simpan ke entity (selalu JSON string):
+    // - List (dari JSON array) → simpan JSON string-nya
+    // - JsonNode Array → simpan string JSON-nya
+    // - JsonNode Text / String "Artis A, Artis B" → pecah koma → [{"name":"Artis A","image":""}, ...] → JSON string
+    // - null / kosong → null
+    private String normalizeLineup(Object raw) {
+        if (raw == null) return null;
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            if (raw instanceof JsonNode node) {
+                if (node.isNull()) return null;
+                if (node.isArray()) return node.toString();
+                String text = node.isTextual() ? node.asText() : node.toString();
+                return normalizeLineup(text);
+            }
+            if (raw instanceof List<?> list) {
+                if (list.isEmpty()) return null;
+                List<Map<String, String>> items = new ArrayList<>();
+                for (Object item : list) {
+                    if (item instanceof Map<?, ?> m) {
+                        Object nameObj = m.get("name");
+                        Object imgObj = m.get("image");
+                        String name = nameObj != null ? String.valueOf(nameObj).trim() : "";
+                        if (!name.isEmpty()) {
+                            Map<String, String> entry = new LinkedHashMap<>();
+                            entry.put("name", name);
+                            entry.put("image", imgObj != null ? String.valueOf(imgObj) : "");
+                            items.add(entry);
+                        }
+                    } else if (item != null) {
+                        String name = String.valueOf(item).trim();
+                        if (!name.isEmpty()) {
+                            Map<String, String> entry = new LinkedHashMap<>();
+                            entry.put("name", name);
+                            entry.put("image", "");
+                            items.add(entry);
+                        }
+                    }
+                }
+                if (items.isEmpty()) return null;
+                return mapper.writeValueAsString(items);
+            }
+            String text = String.valueOf(raw).trim();
+            if (text.isEmpty() || "null".equalsIgnoreCase(text)) return null;
+            // Sudah JSON array string → validasi lalu simpan apa adanya
+            if (text.startsWith("[")) {
+                try {
+                    mapper.readTree(text);
+                    return text;
+                } catch (Exception ignored) {
+                    // bukan JSON valid → lanjut pecah koma
+                }
+            }
+            List<Map<String, String>> items = new ArrayList<>();
+            for (String part : text.split(",")) {
+                String name = part.trim();
+                if (!name.isEmpty()) {
+                    Map<String, String> entry = new LinkedHashMap<>();
+                    entry.put("name", name);
+                    entry.put("image", "");
+                    items.add(entry);
+                }
+            }
+            if (items.isEmpty()) return null;
+            return mapper.writeValueAsString(items);
+        } catch (Exception e) {
+            log.warn("Gagal normalisasi lineup EO: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private Map<String, Object> mapEventToResponse(Event event) {
         Map<String, Object> map = new HashMap<>();
         map.put("event_id", event.getEventId().toString());
@@ -370,12 +443,47 @@ public class OrganizerEventService {
         map.put("venue_name", event.getVenueName());
         map.put("banner_url", event.getBannerUrl());
         map.put("facility", event.getFacility() != null ? event.getFacility() : "");
-        map.put("lineup", event.getLineup() != null ? event.getLineup() : "");
+        map.put("lineup", parseLineupToMap(event.getLineup()));
         map.put("start_date", event.getStartDate() != null ? event.getStartDate().toString() : null);
         map.put("end_date", event.getEndDate() != null ? event.getEndDate().toString() : null);
         map.put("status", event.getStatus());
         map.put("is_featured", event.getIsFeatured());
         map.put("created_at", event.getCreatedAt() != null ? event.getCreatedAt().toString() : null);
         return map;
+    }
+
+    // Parse lineup dari DB (String) → List of Map (kompatibel dengan frontend)
+    private List<Map<String, String>> parseLineupToMap(String rawLineup) {
+        if (rawLineup == null || rawLineup.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            // Jika JSON, parse langsung
+            if (rawLineup.trim().startsWith("[")) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, String>> parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(rawLineup, List.class);
+                return parsed;
+            }
+            // Fallback: pecah koma
+            return java.util.Arrays.stream(rawLineup.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(name -> {
+                        Map<String, String> item = new HashMap<>();
+                        item.put("name", name);
+                        item.put("image", "");
+                        return item;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+        } catch (Exception e) {
+            // Fallback final: kembalikan sebagai list string tunggal
+            List<Map<String, String>> list = new ArrayList<>();
+            Map<String, String> single = new HashMap<>();
+            single.put("name", rawLineup);
+            single.put("image", "");
+            list.add(single);
+            return list;
+        }
     }
 }

@@ -156,13 +156,44 @@ public class OrganizerDashboardService {
         map.put("category", event.getCategory());
         map.put("venue_name", event.getVenueName());
         map.put("banner_url", event.getBannerUrl());
-        map.put("facility", event.getFacility());
-        map.put("lineup", event.getLineup());
+        map.put("facility", event.getFacility() != null ? event.getFacility() : "");
+        map.put("lineup", parseLineupToMap(event.getLineup()));
         map.put("start_date", event.getStartDate() != null ? event.getStartDate().toString() : null);
         map.put("end_date", event.getEndDate() != null ? event.getEndDate().toString() : null);
         map.put("status", event.getStatus());
         map.put("is_featured", event.getIsFeatured());
         map.put("created_at", event.getCreatedAt() != null ? event.getCreatedAt().toString() : null);
         return map;
+    }
+
+    private List<Map<String, String>> parseLineupToMap(String rawLineup) {
+        if (rawLineup == null || rawLineup.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            if (rawLineup.trim().startsWith("[")) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, String>> parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(rawLineup, List.class);
+                return parsed;
+            }
+            return java.util.Arrays.stream(rawLineup.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(name -> {
+                        Map<String, String> item = new HashMap<>();
+                        item.put("name", name);
+                        item.put("image", "");
+                        return item;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+        } catch (Exception e) {
+            List<Map<String, String>> list = new ArrayList<>();
+            Map<String, String> single = new HashMap<>();
+            single.put("name", rawLineup);
+            single.put("image", "");
+            list.add(single);
+            return list;
+        }
     }
 }

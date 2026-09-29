@@ -5,6 +5,7 @@ import com.example.eventday.entity.Order;
 import com.example.eventday.model.Attendee;
 import com.example.eventday.service.OrderService;
 import com.example.eventday.service.PaymentService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;

@@ -119,6 +119,7 @@ public class AdminTicketService {
                 .orElseThrow(() -> new RuntimeException("Event tidak ditemukan"));
         List<TicketTier> tiers = ticketTierRepository.findByEvent(event);
         List<Order> allOrders = orderRepository.findByEvent(event);
+        List<TicketItem> eventTickets = ticketItemRepository.findByEvent_EventId(eventId);
 
         List<Order> paidOrders = allOrders.stream()
                 .filter(o -> "PAID".equals(o.getStatus()))
@@ -127,10 +128,9 @@ public class AdminTicketService {
         List<Map<String, Object>> tierInventory = new ArrayList<>();
         for (TicketTier tier : tiers) {
             UUID tierId = tier.getTierId();
-            long soldCount = paidOrders.stream()
-                    .filter(o -> tierId.equals(o.getTicketTier() != null ? o.getTicketTier().getTierId() : null))
-                    .mapToInt(Order::getQuantity)
-                    .sum();
+            long soldCount = eventTickets.stream()
+                    .filter(t -> t.getTier() != null && tierId.equals(t.getTier().getTierId()))
+                    .count();
 
             tierInventory.add(Map.of(
                     "tierId", tier.getTierId(),

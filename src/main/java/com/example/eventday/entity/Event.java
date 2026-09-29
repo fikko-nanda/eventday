@@ -40,7 +40,7 @@ public class Event {
     @Column(name = "facility", columnDefinition = "TEXT")
     private String facility;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "VARCHAR(255)")
     private String lineup;
 
     @Column(name = "start_date", nullable = false)

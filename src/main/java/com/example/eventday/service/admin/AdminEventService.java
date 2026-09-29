@@ -7,6 +7,9 @@ import com.example.eventday.repository.*;
 import com.example.eventday.service.AuditLogService;
 import com.example.eventday.service.FileStorageService;
 import com.example.eventday.util.CsvUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +36,7 @@ public class AdminEventService {
     private final TicketTierRepository ticketTierRepository;
     private final OrderRepository orderRepository;
     private final OrganizerRepository organizerRepository;
+    private final TicketItemRepository ticketItemRepository;
     private final AuditLogService auditLogService;
     private final FileStorageService fileStorageService;
 
@@ -75,6 +79,7 @@ public class AdminEventService {
                 .venueName(request.getVenueName())
                 .bannerUrl(request.getBannerUrl())
                 .facility(request.getFacilities() != null ? String.join(", ", request.getFacilities()) : "")
+                .lineup(normalizeLineup(request.getLineup()))
                 .startDate(request.getEventDate() != null ? request.getEventDate() : LocalDateTime.now().plusDays(7))
                 .endDate(request.getEventDate() != null ? request.getEventDate().plusHours(8) : LocalDateTime.now().plusDays(7).plusHours(8))
                 .status("PUBLISHED")
@@ -129,6 +134,9 @@ public class AdminEventService {
         }
         event.setBannerUrl(request.getBannerUrl());
         event.setFacility(request.getFacilities() != null ? String.join(", ", request.getFacilities()) : null);
+        if (request.getLineup() != null) {
+            event.setLineup(normalizeLineup(request.getLineup()));
+        }
         event.setUpdatedAt(LocalDateTime.now());
         event.setUpdatedBy(adminId);
 
@@ -260,9 +268,9 @@ public class AdminEventService {
 
         long totalOrders = paidOrPendingOrders.size();
 
-        long ticketsSold = paidOrPendingOrders.stream()
-                .filter(o -> "PAID".equals(o.getStatus()))
-                .mapToInt(Order::getQuantity)
+        // Source of Truth: Hitung tiket terjual dari selisih kuota (single source of truth)
+        long ticketsSold = tiers.stream()
+                .mapToLong(t -> Math.max(0, t.getTotalQuota() - t.getAvailableQuota()))
                 .sum();
 
         BigDecimal revenuePaid = paidOrPendingOrders.stream()
@@ -283,14 +291,11 @@ public class AdminEventService {
 
         Map<String, AdminEventSalesResponse.TierSales> salesByTier = new LinkedHashMap<>();
         for (TicketTier tier : tiers) {
-            UUID tierId = tier.getTierId();
-            long tierSold = paidOrders.stream()
-                    .filter(o -> tierId.equals(o.getTicketTier() != null ? o.getTicketTier().getTierId() : null))
-                    .mapToInt(Order::getQuantity)
-                    .sum();
+            // Hitung tiket terjual berdasarkan selisih kuota per tier
+            long tierSold = Math.max(0, tier.getTotalQuota() - tier.getAvailableQuota());
 
             BigDecimal tierRevenue = paidOrders.stream()
-                    .filter(o -> tierId.equals(o.getTicketTier() != null ? o.getTicketTier().getTierId() : null))
+                    .filter(o -> tier.getTierId().equals(o.getTicketTier() != null ? o.getTicketTier().getTierId() : null))
                     .map(Order::getTotalAmount)
                     .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -408,21 +413,53 @@ public class AdminEventService {
                 .filter(o -> "PAID".equals(o.getStatus()))
                 .toList();
 
+        // Source of Truth: Hitung tiket terjual dari selisih kuota (single source of truth)
         List<AdminEventResponse.TierInfo> tierInfos = tiers.stream().map(t -> {
             UUID tierId = t.getTierId();
-            long sold = paidOrders.stream()
-                    .filter(o -> tierId.equals(o.getTicketTier() != null ? o.getTicketTier().getTierId() : null))
-                    .mapToInt(Order::getQuantity)
-                    .sum();
+            
+            // Hitung tiket terjual berdasarkan selisih totalQuota dan availableQuota
+            int tierSoldCount = Math.max(0, t.getTotalQuota() - t.getAvailableQuota());
+            
             return AdminEventResponse.TierInfo.builder()
                     .tierId(t.getTierId())
                     .tierName(t.getTierName())
                     .price(t.getPrice())
                     .totalQuota(t.getTotalQuota())
                     .availableQuota(t.getAvailableQuota())
-                    .soldCount(sold)
+                    .soldCount((long) tierSoldCount)
                     .build();
         }).toList();
+
+        // Total tiket terjual untuk keseluruhan event
+        long totalTicketsSold = tierInfos.stream()
+                .mapToLong(AdminEventResponse.TierInfo::getSoldCount)
+                .sum();
+
+        // Total kapasitas dari semua tier
+        long totalCapacity = tiers.stream()
+                .mapToInt(TicketTier::getTotalQuota)
+                .sum();
+
+        // Hitung revenue dari Order yang PAID
+        BigDecimal revenuePaid = paidOrders.stream()
+                .map(Order::getTotalAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Hitung revenue pending
+        BigDecimal revenuePending = allOrders.stream()
+                .filter(o -> "WAITING_PAYMENT".equals(o.getStatus()))
+                .map(Order::getTotalAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Buat SalesSummary dengan data sinkron dari kuota
+        AdminEventResponse.SalesSummary salesSummary = AdminEventResponse.SalesSummary.builder()
+                .ticketsSold(totalTicketsSold)
+                .totalCapacity(totalCapacity)
+                .revenuePaid(revenuePaid)
+                .revenuePending(revenuePending)
+                .build();
 
         return AdminEventResponse.builder()
                 .eventId(e.getEventId())
@@ -438,10 +475,86 @@ public class AdminEventService {
                 .isFeatured(e.getIsFeatured())
                 .bannerUrl(e.getBannerUrl())
                 .facility(e.getFacility() != null ? e.getFacility() : "")
-                .lineup(e.getLineup())
+                .lineup(mapLineupForResponse(e.getLineup()))
                 .ticketTiers(tierInfos)
+                .salesSummary(salesSummary)
                 .createdAt(e.getCreatedAt())
                 .build();
+    }
+
+    // Normalisasi lineup SEBELUM simpan ke entity (selalu JSON string):
+    // - Array Node [{name, image}] → simpan string JSON-nya
+    // - Text Node / String "Artis A, Artis B" → pecah koma → [{"name":"Artis A","image":""}, ...] → JSON string
+    // - null / kosong → null
+    private String normalizeLineup(JsonNode lineupNode) {
+        if (lineupNode == null || lineupNode.isNull()) {
+            return null;
+        }
+        try {
+            if (lineupNode.isArray()) {
+                return lineupNode.toString();
+            }
+            String raw = lineupNode.isTextual() ? lineupNode.asText() : lineupNode.toString();
+            if (raw == null || raw.isBlank()) {
+                return null;
+            }
+            // Jika sudah JSON array string, validasi lalu simpan apa adanya
+            String trimmed = raw.trim();
+            if (trimmed.startsWith("[")) {
+                try {
+                    new ObjectMapper().readTree(trimmed);
+                    return trimmed;
+                } catch (Exception ignored) {
+                    // bukan JSON valid → lanjut pecah koma
+                }
+            }
+            // Pecah koma → array objek {name, image}
+            List<Map<String, String>> items = new ArrayList<>();
+            for (String part : raw.split(",")) {
+                String name = part.trim();
+                if (!name.isEmpty()) {
+                    Map<String, String> item = new LinkedHashMap<>();
+                    item.put("name", name);
+                    item.put("image", "");
+                    items.add(item);
+                }
+            }
+            if (items.isEmpty()) {
+                return null;
+            }
+            return new ObjectMapper().writeValueAsString(items);
+        } catch (Exception e) {
+            log.warn("Gagal normalisasi lineup: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    // Mapping lineup DARI entity → response (selalu list objek untuk FE):
+    // - JSON array valid → parse ke List<Map>
+    // - String polos peninggalan lama (misal "For Revenge") → bungkus jadi 1 item [{name, image:""}]
+    // - null / kosong → []
+    private Object mapLineupForResponse(String stored) {
+        if (stored == null || stored.isBlank()) {
+            return List.of();
+        }
+        try {
+            String trimmed = stored.trim();
+            if (trimmed.startsWith("[")) {
+                return new ObjectMapper().readValue(trimmed,
+                        new TypeReference<List<Map<String, String>>>() {});
+            }
+            // Legacy: string polos → 1 item
+            Map<String, String> single = new LinkedHashMap<>();
+            single.put("name", trimmed);
+            single.put("image", "");
+            return List.of(single);
+        } catch (Exception e) {
+            log.warn("Gagal parse lineup untuk response: {}", e.getMessage());
+            Map<String, String> single = new LinkedHashMap<>();
+            single.put("name", stored);
+            single.put("image", "");
+            return List.of(single);
+        }
     }
 
     private String getOrganizerName(Organizer organizer) {
