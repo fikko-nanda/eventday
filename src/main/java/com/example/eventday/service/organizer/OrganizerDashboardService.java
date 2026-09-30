@@ -1,6 +1,7 @@
 package com.example.eventday.service.organizer;
 
 import com.example.eventday.entity.Event;
+import com.example.eventday.entity.Order;
 import com.example.eventday.entity.Organizer;
 import com.example.eventday.entity.User;
 import com.example.eventday.repository.EventRepository;
@@ -69,51 +70,102 @@ public class OrganizerDashboardService {
     }
 
     public Map<String, Object> getOrganizerDashboardMetrics() {
-        Organizer org = helperService.resolveCurrentOrganizer();
-        if (org == null) {
-            return Map.of("total_revenue", BigDecimal.ZERO, "active_events", 0, "total_events", 0, "tickets_sold", 0);
+        try {
+            Organizer org = helperService.findCurrentOrganizer();
+            if (org == null || org.getOrganizerId() == null) {
+                return zeroMetrics();
+            }
+
+            long activeEvents = eventRepository.countByOrganizer_OrganizerIdAndStatus(org.getOrganizerId(), "PUBLISHED");
+            long totalEvents = eventRepository.countByOrganizer_OrganizerId(org.getOrganizerId());
+
+            Map<String, BigDecimal> breakdown = balanceService.calculateBalanceBreakdown(org.getOrganizerId());
+            BigDecimal available = breakdown != null && breakdown.get("available_balance") != null
+                    ? breakdown.get("available_balance") : BigDecimal.ZERO;
+
+            List<Order> allOrders = orderRepository.findAll();
+            long ticketsSold = 0L;
+            if (allOrders != null && !allOrders.isEmpty()) {
+                ticketsSold = allOrders.stream()
+                        .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
+                                && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
+                        .mapToLong(o -> o.getQuantity() != null ? o.getQuantity() : 0)
+                        .sum();
+            }
+
+            Map<String, Object> metrics = new HashMap<>();
+            metrics.put("total_revenue", available);
+            metrics.put("gross_revenue", breakdown != null && breakdown.get("gross_revenue") != null
+                    ? breakdown.get("gross_revenue") : BigDecimal.ZERO);
+            metrics.put("total_refund", breakdown != null && breakdown.get("total_refund") != null
+                    ? breakdown.get("total_refund") : BigDecimal.ZERO);
+            metrics.put("total_payout", breakdown != null && breakdown.get("total_payout") != null
+                    ? breakdown.get("total_payout") : BigDecimal.ZERO);
+            metrics.put("available_balance", available);
+            metrics.put("active_events", activeEvents);
+            metrics.put("total_events", totalEvents);
+            metrics.put("tickets_sold", ticketsSold);
+            metrics.put("organizer_id", org.getOrganizerId().toString());
+            return metrics;
+        } catch (RuntimeException e) {
+            log.warn("Gagal memuat metrik dashboard EO, kembalikan default 0: {}", e.getMessage());
+            return zeroMetrics();
         }
+    }
 
-        long activeEvents = eventRepository.countByOrganizer_OrganizerIdAndStatus(org.getOrganizerId(), "PUBLISHED");
-        long totalEvents = eventRepository.countByOrganizer_OrganizerId(org.getOrganizerId());
-
-        Map<String, BigDecimal> breakdown = balanceService.calculateBalanceBreakdown(org.getOrganizerId());
-        BigDecimal available = breakdown.get("available_balance");
-
-        long ticketsSold = orderRepository.findAll().stream()
-                .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
-                        && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
-                .mapToLong(o -> o.getQuantity() != null ? o.getQuantity() : 0)
-                .sum();
-
+    /**
+     * Fallback aman untuk /metrics: semua angka 0 (bentuk response sama
+     * seperti sukses agar FE tidak perlu branch khusus).
+     */
+    private Map<String, Object> zeroMetrics() {
         Map<String, Object> metrics = new HashMap<>();
-        metrics.put("total_revenue", available);
-        metrics.put("gross_revenue", breakdown.get("gross_revenue"));
-        metrics.put("total_refund", breakdown.get("total_refund"));
-        metrics.put("total_payout", breakdown.get("total_payout"));
-        metrics.put("available_balance", available);
-        metrics.put("active_events", activeEvents);
-        metrics.put("total_events", totalEvents);
-        metrics.put("tickets_sold", ticketsSold);
-        metrics.put("organizer_id", org.getOrganizerId().toString());
+        metrics.put("total_revenue", BigDecimal.ZERO);
+        metrics.put("gross_revenue", BigDecimal.ZERO);
+        metrics.put("total_refund", BigDecimal.ZERO);
+        metrics.put("total_payout", BigDecimal.ZERO);
+        metrics.put("available_balance", BigDecimal.ZERO);
+        metrics.put("active_events", 0L);
+        metrics.put("total_events", 0L);
+        metrics.put("tickets_sold", 0L);
+        metrics.put("organizer_id", null);
         return metrics;
     }
 
     public List<Map<String, Object>> getRecentEvents() {
-        Organizer org = helperService.resolveCurrentOrganizer();
-        if (org == null) return Collections.emptyList();
+        try {
+            Organizer org = helperService.findCurrentOrganizer();
+            if (org == null || org.getOrganizerId() == null) {
+                return Collections.emptyList();
+            }
 
-        return eventRepository.findTop5ByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId())
-                .stream()
-                .map(this::mapEventToResponse)
-                .collect(Collectors.toList());
+            List<Event> events = eventRepository.findTop5ByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId());
+            if (events == null || events.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return events.stream()
+                    .filter(Objects::nonNull)
+                    .map(this::mapEventToResponse)
+                    .collect(Collectors.toList());
+        } catch (RuntimeException e) {
+            log.warn("Gagal memuat recent-events EO, kembalikan list kosong: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     public List<Map<String, Object>> getRecentTransactions() {
-        Organizer org = helperService.resolveCurrentOrganizer();
-        if (org == null) return Collections.emptyList();
+        try {
+            Organizer org = helperService.findCurrentOrganizer();
+            if (org == null || org.getOrganizerId() == null) {
+                return Collections.emptyList();
+            }
 
-        return orderRepository.findAll().stream()
+            List<Order> allOrders = orderRepository.findAll();
+            if (allOrders == null || allOrders.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            return allOrders.stream()
+                .filter(Objects::nonNull)
                 .filter(o -> o.getEvent() != null && o.getEvent().getOrganizer() != null
                         && o.getEvent().getOrganizer().getOrganizerId().equals(org.getOrganizerId()))
                 .sorted((a, b) -> {
@@ -146,6 +198,10 @@ public class OrganizerDashboardService {
                     return m;
                 })
                 .collect(Collectors.toList());
+        } catch (RuntimeException e) {
+            log.warn("Gagal memuat recent-transactions EO, kembalikan list kosong: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     private Map<String, Object> mapEventToResponse(Event event) {
@@ -153,7 +209,7 @@ public class OrganizerDashboardService {
         map.put("event_id", event.getEventId().toString());
         map.put("title", event.getTitle());
         map.put("description", event.getDescription());
-        map.put("category", event.getCategory());
+        map.put("category", safeCategoryCode(event.getCategory()));
         map.put("venue_name", event.getVenueName());
         map.put("banner_url", event.getBannerUrl());
         map.put("facility", event.getFacility() != null ? event.getFacility() : "");
@@ -164,6 +220,22 @@ public class OrganizerDashboardService {
         map.put("is_featured", event.getIsFeatured());
         map.put("created_at", event.getCreatedAt() != null ? event.getCreatedAt().toString() : null);
         return map;
+    }
+
+    /**
+     * Konversi category entity → kode String yang aman untuk response.
+     * Tidak pernah memanggil Category.valueOf secara mentah dan tidak pernah
+     * throw: nilai tak dikenal/baris legacy → "MUSIC_FESTIVAL".
+     */
+    private String safeCategoryCode(Object rawCategory) {
+        try {
+            if (rawCategory == null) return "MUSIC_FESTIVAL";
+            com.example.eventday.model.Category parsed =
+                    com.example.eventday.model.Category.fromString(rawCategory.toString());
+            return parsed != null ? parsed.name() : "MUSIC_FESTIVAL";
+        } catch (Exception e) {
+            return "MUSIC_FESTIVAL";
+        }
     }
 
     private List<Map<String, String>> parseLineupToMap(String rawLineup) {

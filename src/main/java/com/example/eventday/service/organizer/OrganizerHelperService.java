@@ -53,6 +53,26 @@ public class OrganizerHelperService {
         }
     }
 
+    /**
+     * Resolusi organizer NULL-SAFE untuk endpoint dashboard/read-only.
+     * Return null (TANPA throw) bila: auth hilang, token bukan UUID,
+     * atau baris organizer belum ada di DB (misal user baru daftar).
+     * Dashboard service memakai ini agar endpoint selalu 200 OK
+     * (fallback metrik 0 / list kosong) alih-alih 400/403.
+     */
+    public Organizer findCurrentOrganizer() {
+        try {
+            UUID userId = currentUserId();
+            if (userId == null) {
+                return null;
+            }
+            return organizerRepository.findByUserUserId(userId).orElse(null);
+        } catch (Exception e) {
+            log.debug("Organizer tidak ditemukan untuk user saat ini: {}", e.getMessage());
+            return null;
+        }
+    }
+
     public String saveFile(MultipartFile file, String subfolder) {
         return saveFile(file, subfolder, true);
     }

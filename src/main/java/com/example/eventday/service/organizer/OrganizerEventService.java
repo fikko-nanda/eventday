@@ -362,40 +362,45 @@ public class OrganizerEventService {
         }
     }
 
-    // Konversi String kategori dari FE → enum Category (toleran: "Music"/"MUSIK" → MUSIC_FESTIVAL, dst.)
+    /**
+     * Parsing kategori yang KEBAL ERROR untuk response mapping.
+     * Selalu kembalikan kode kategori String yang valid (tidak pernah throw),
+     * sehingga 1 baris data legacy tidak meruntuhkan seluruh list (400).
+     */
+    private String parseCategorySafely(Object rawCategory) {
+        if (rawCategory == null) return "MUSIC_FESTIVAL";
+        String val = rawCategory.toString().trim().toUpperCase();
+        switch (val) {
+            case "ENTERTAINMENT":
+            case "MUSIK":
+            case "MUSIC":
+            case "KONSER":
+            case "MUSIC_FESTIVAL":
+                return "MUSIC_FESTIVAL";
+            case "SEMINAR":
+            case "SEMINAR_WORKSHOP":
+            case "WORKSHOP":
+            case "CONFERENCE":
+                return "CONFERENCE";
+            case "PAMERAN":
+            case "EXHIBITION":
+                return "EXHIBITION";
+            case "KULINER":
+            case "CULINARY":
+                return "CULINARY";
+            default:
+                return "MUSIC_FESTIVAL";
+        }
+    }
+
+    // Konversi String kategori dari FE → enum Category.
+    // TIDAK PERNAH memanggil Category.valueOf secara mentah — delegasi ke
+    // Category.fromString() yang kebal error (try-catch di dalam).
+    // null/kosong → OTHER agar kolom NOT NULL implisit tetap terisi.
     private Category parseCategory(String raw) {
         if (raw == null || raw.isBlank()) return Category.OTHER;
-        String normalized = raw.trim().toUpperCase().replace(" ", "_").replace("-", "_");
-        try {
-            return Category.valueOf(normalized);
-        } catch (IllegalArgumentException ignored) {
-            // fallback pencocokan longgar
-        }
-        if (normalized.contains("MUSI") || normalized.contains("KONSER") || normalized.contains("CONCERT") || normalized.contains("FESTIVAL")) {
-            return Category.MUSIC_FESTIVAL;
-        }
-        if (normalized.contains("SEMINAR") || normalized.contains("WORKSHOP")) {
-            return Category.SEMINAR_WORKSHOP;
-        }
-        if (normalized.contains("CONFERENCE") || normalized.contains("KONFERENSI")) {
-            return Category.CONFERENCE;
-        }
-        if (normalized.contains("EXHIBITION") || normalized.contains("PAMERAN") || normalized.contains("EXPO")) {
-            return Category.EXHIBITION;
-        }
-        if (normalized.contains("CULINARY") || normalized.contains("KULINER") || normalized.contains("FOOD") || normalized.contains("MAKAN")) {
-            return Category.CULINARY;
-        }
-        if (normalized.contains("SPORT") || normalized.contains("OLAHRAGA")) {
-            return Category.SPORTS;
-        }
-        if (normalized.contains("COMMUNITY") || normalized.contains("KOMUNITAS")) {
-            return Category.COMMUNITY;
-        }
-        if (normalized.contains("TECH") || normalized.contains("TEKNOLOGI")) {
-            return Category.TECHNOLOGY;
-        }
-        return Category.OTHER;
+        Category parsed = Category.fromString(raw);
+        return parsed != null ? parsed : Category.OTHER;
     }
 
     // Normalisasi lineup SEBELUM simpan ke entity (selalu JSON string):
@@ -476,7 +481,7 @@ public class OrganizerEventService {
         map.put("organizerId", event.getOrganizer() != null ? event.getOrganizer().getOrganizerId().toString() : null);
         map.put("title", event.getTitle());
         map.put("description", event.getDescription());
-        map.put("category", event.getCategory());
+        map.put("category", parseCategorySafely(event.getCategory()));
         map.put("venue_name", event.getVenueName());
         map.put("banner_url", event.getBannerUrl());
         map.put("facility", event.getFacility() != null ? event.getFacility() : "");
