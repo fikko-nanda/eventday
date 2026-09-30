@@ -1,5 +1,6 @@
 package com.example.eventday.entity;
 
+import com.example.eventday.model.Category; // <-- Pastikan import enum Category ini disesuaikan dengan package kamu
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -28,8 +29,11 @@ public class Event {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(length = 50, columnDefinition = "VARCHAR(50)")
-    private String category;
+    // --- PERUBAHAN DI SINI ---
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category", length = 50)
+    private Category category;
+    // --------------------------
 
     @Column(name = "venue_name", length = 150, columnDefinition = "VARCHAR(150)")
     private String venueName;

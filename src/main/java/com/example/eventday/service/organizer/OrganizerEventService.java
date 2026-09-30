@@ -3,6 +3,7 @@ package com.example.eventday.service.organizer;
 import com.example.eventday.entity.Organizer;
 import com.example.eventday.entity.Event;
 import com.example.eventday.entity.TicketTier;
+import com.example.eventday.model.Category;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.TicketTierRepository;
@@ -102,7 +103,7 @@ public class OrganizerEventService {
                 .organizer(org)
                 .title(title)
                 .description((String) payload.get("description"))
-                .category((String) payload.getOrDefault("category", "Music"))
+                .category(parseCategory((String) payload.getOrDefault("category", "Music")))
                 .venueName((String) payload.getOrDefault("venue_name", payload.getOrDefault("venueName", "TBA")))
                 .bannerUrl((String) payload.getOrDefault("banner_url", payload.get("bannerUrl")))
                 .facility(payload.get("facilities") != null ? String.join(", ", (List<String>) payload.get("facilities")) : "")
@@ -200,7 +201,7 @@ public class OrganizerEventService {
         }
 
         if (payload.containsKey("description")) event.setDescription(str(payload.get("description")));
-        if (payload.containsKey("category")) event.setCategory(str(payload.get("category")));
+        if (payload.containsKey("category")) event.setCategory(parseCategory(str(payload.get("category"))));
         if (payload.containsKey("venueName")) event.setVenueName(str(payload.get("venueName")));
         if (payload.containsKey("venue_name")) event.setVenueName(str(payload.get("venue_name")));
         if (payload.containsKey("location") && !payload.containsKey("venueName") && !payload.containsKey("venue_name")) {
@@ -359,6 +360,42 @@ public class OrganizerEventService {
         } catch (Exception e) {
             return fallback;
         }
+    }
+
+    // Konversi String kategori dari FE → enum Category (toleran: "Music"/"MUSIK" → MUSIC_FESTIVAL, dst.)
+    private Category parseCategory(String raw) {
+        if (raw == null || raw.isBlank()) return Category.OTHER;
+        String normalized = raw.trim().toUpperCase().replace(" ", "_").replace("-", "_");
+        try {
+            return Category.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            // fallback pencocokan longgar
+        }
+        if (normalized.contains("MUSI") || normalized.contains("KONSER") || normalized.contains("CONCERT") || normalized.contains("FESTIVAL")) {
+            return Category.MUSIC_FESTIVAL;
+        }
+        if (normalized.contains("SEMINAR") || normalized.contains("WORKSHOP")) {
+            return Category.SEMINAR_WORKSHOP;
+        }
+        if (normalized.contains("CONFERENCE") || normalized.contains("KONFERENSI")) {
+            return Category.CONFERENCE;
+        }
+        if (normalized.contains("EXHIBITION") || normalized.contains("PAMERAN") || normalized.contains("EXPO")) {
+            return Category.EXHIBITION;
+        }
+        if (normalized.contains("CULINARY") || normalized.contains("KULINER") || normalized.contains("FOOD") || normalized.contains("MAKAN")) {
+            return Category.CULINARY;
+        }
+        if (normalized.contains("SPORT") || normalized.contains("OLAHRAGA")) {
+            return Category.SPORTS;
+        }
+        if (normalized.contains("COMMUNITY") || normalized.contains("KOMUNITAS")) {
+            return Category.COMMUNITY;
+        }
+        if (normalized.contains("TECH") || normalized.contains("TEKNOLOGI")) {
+            return Category.TECHNOLOGY;
+        }
+        return Category.OTHER;
     }
 
     // Normalisasi lineup SEBELUM simpan ke entity (selalu JSON string):

@@ -1,6 +1,7 @@
 package com.example.eventday.repository;
 
 import com.example.eventday.entity.Event;
+import com.example.eventday.model.Category;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,13 +17,13 @@ import java.util.UUID;
 public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationExecutor<Event> {
 
     @Query("SELECT e FROM Event e LEFT JOIN e.organizer o WHERE " +
-           "(CAST(:category AS string) IS NULL OR e.category = :category) AND " +
+           "(:category IS NULL OR e.category = :category) AND " +
            "(CAST(:search AS string) IS NULL OR LOWER(e.title) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) " +
            "OR LOWER(e.venueName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))) AND " +
            "(CAST(:location AS string) IS NULL OR LOWER(e.venueName) LIKE LOWER(CONCAT('%', CAST(:location AS string), '%'))) AND " +
            "e.status = 'PUBLISHED'")
     Page<Event> findPublishedEvents(
-            @Param("category") String category,
+            @Param("category") Category category,
             @Param("search") String search,
             @Param("location") String location,
             Pageable pageable);
@@ -39,19 +40,19 @@ public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecific
     List<String> findDistinctLocations();
 
     @Query("SELECT DISTINCT e.category FROM Event e WHERE e.category IS NOT NULL AND e.status = 'PUBLISHED' ORDER BY e.category ASC")
-    List<String> findDistinctCategories();
+    List<Category> findDistinctCategories();
 
     @Query("SELECT e FROM Event e LEFT JOIN e.organizer o WHERE "
             + "e.status = 'PUBLISHED' AND "
             + "(CAST(:keyword AS string) IS NULL OR LOWER(e.title) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) "
             + "OR LOWER(e.description) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) "
             + "OR LOWER(e.venueName) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))) AND "
-            + "(CAST(:category AS string) IS NULL OR e.category = :category) AND "
+            + "(:category IS NULL OR e.category = :category) AND "
             + "(CAST(:location AS string) IS NULL OR LOWER(e.venueName) LIKE LOWER(CONCAT('%', CAST(:location AS string), '%'))) AND "
             + "(:date IS NULL OR CAST(e.startDate AS date) = :date)")
     Page<Event> searchPublishedEvents(
             @Param("keyword") String keyword,
-            @Param("category") String category,
+            @Param("category") Category category,
             @Param("location") String location,
             @Param("date") java.time.LocalDate date,
             Pageable pageable);

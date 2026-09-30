@@ -4,6 +4,7 @@ import com.example.eventday.dto.EventCardResponse;
 import com.example.eventday.dto.HeroBannerResponse;
 import com.example.eventday.entity.Event;
 import com.example.eventday.entity.TicketTier;
+import com.example.eventday.model.Category;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.TicketTierRepository;
 import lombok.RequiredArgsConstructor;
@@ -67,14 +68,17 @@ public class HomeSearchService {
     }
 
     public List<String> getCategories() {
-        List<String> categories = eventRepository.findDistinctCategories();
-        return categories != null ? categories : Collections.emptyList();
+        List<Category> categories = eventRepository.findDistinctCategories();
+        if (categories == null) {
+            return Collections.emptyList();
+        }
+        return categories.stream().map(Category::name).collect(Collectors.toList());
     }
 
     public Page<EventCardResponse> searchEvents(String keyword, String category,
                                                String location, LocalDate date,
                                                Pageable pageable) {
-        String normalizedCategory = normalizeCategory(category);
+        Category normalizedCategory = normalizeCategory(category);
         String normalizedKeyword = blankToNull(keyword);
         String normalizedLocation = blankToNull(location);
         Page<Event> page = eventRepository.searchPublishedEvents(
@@ -119,8 +123,8 @@ public class HomeSearchService {
                 .title(event.getTitle())
                 .posterUrl(event.getBannerUrl())
                 .location(event.getVenueName())
-                .category(event.getCategory())
-                .categoryLabel(CATEGORY_LABEL.getOrDefault(event.getCategory(), event.getCategory()))
+                .category(Category.codeOf(event.getCategory()))
+                .categoryLabel(categoryLabel(event))
                 .startDate(event.getStartDate())
                 .dateDisplay(event.getStartDate() != null ? event.getStartDate().format(DATE_DISPLAY) : null)
                 .lowestPrice(lowest)
@@ -151,12 +155,15 @@ public class HomeSearchService {
         return "Rp " + String.format("%,d", price.longValue()).replace(",", ".");
     }
 
-    private String normalizeCategory(String category) {
-        if (category == null || category.isBlank()
-                || "Semua".equalsIgnoreCase(category) || "ALL".equalsIgnoreCase(category)) {
+    private Category normalizeCategory(String category) {
+        return Category.fromString(category);
+    }
+
+    private String categoryLabel(Event event) {
+        if (event.getCategory() == null) {
             return null;
         }
-        return category.toUpperCase().replace(" ", "_");
+        return CATEGORY_LABEL.getOrDefault(event.getCategory().name(), event.getCategory().getLabel());
     }
 
     private String blankToNull(String value) {

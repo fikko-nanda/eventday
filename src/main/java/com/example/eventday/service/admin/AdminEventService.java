@@ -3,6 +3,7 @@ package com.example.eventday.service.admin;
 import com.example.eventday.dto.CreateEventRequest;
 import com.example.eventday.dto.admin.*;
 import com.example.eventday.entity.*;
+import com.example.eventday.model.Category;
 import com.example.eventday.repository.*;
 import com.example.eventday.service.AuditLogService;
 import com.example.eventday.service.FileStorageService;
@@ -75,7 +76,7 @@ public class AdminEventService {
                 .organizer(organizer)
                 .title(request.getTitle())
                 .description(request.getDescription())
-                .category(request.getCategory())
+                .category(Category.fromString(request.getCategory()))
                 .venueName(request.getVenueName())
                 .bannerUrl(request.getBannerUrl())
                 .facility(request.getFacilities() != null ? String.join(", ", request.getFacilities()) : "")
@@ -126,7 +127,7 @@ public class AdminEventService {
 
         event.setTitle(request.getTitle());
         event.setDescription(request.getDescription());
-        event.setCategory(request.getCategory());
+        event.setCategory(Category.fromString(request.getCategory()));
         event.setVenueName(request.getVenueName());
         if (request.getEventDate() != null) {
             event.setStartDate(request.getEventDate());
@@ -330,7 +331,7 @@ public class AdminEventService {
             CsvUtil.appendCsvRow(sb,
                     e.getEventId().toString(),
                     CsvUtil.escape(e.getTitle()),
-                    CsvUtil.escape(e.getCategory()),
+                    CsvUtil.escape(Category.codeOf(e.getCategory())),
                     CsvUtil.escape(e.getVenueName()),
                     e.getStartDate() != null ? e.getStartDate().toString() : "",
                     e.getEndDate() != null ? e.getEndDate().toString() : "",
@@ -351,7 +352,10 @@ public class AdminEventService {
                 predicates.add(cb.equal(root.get("status"), status.toUpperCase()));
             }
             if (category != null && !category.isBlank() && !"ALL".equalsIgnoreCase(category)) {
-                predicates.add(cb.equal(root.get("category"), category));
+                Category categoryEnum = Category.fromString(category);
+                if (categoryEnum != null) {
+                    predicates.add(cb.equal(root.get("category"), categoryEnum));
+                }
             }
             if (organizerId != null) {
                 predicates.add(cb.equal(root.get("organizer").get("organizerId"), organizerId));
@@ -392,7 +396,7 @@ public class AdminEventService {
         return AdminEventListResponse.builder()
                 .eventId(e.getEventId())
                 .title(e.getTitle())
-                .category(e.getCategory())
+                .category(Category.codeOf(e.getCategory()))
                 .venueName(e.getVenueName())
                 .startDate(e.getStartDate())
                 .endDate(e.getEndDate())
@@ -467,7 +471,7 @@ public class AdminEventService {
                 .organizerName(getOrganizerName(e.getOrganizer()))
                 .title(e.getTitle())
                 .description(e.getDescription())
-                .category(e.getCategory())
+                .category(Category.codeOf(e.getCategory()))
                 .venueName(e.getVenueName())
                 .startDate(e.getStartDate())
                 .endDate(e.getEndDate())

@@ -14,7 +14,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.*;
-
+@SuppressWarnings("null")
 @Slf4j
 @Service
 @RequiredArgsConstructor

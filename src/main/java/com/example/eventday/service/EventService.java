@@ -4,6 +4,7 @@ import com.example.eventday.dto.EventCatalogResponse;
 import com.example.eventday.dto.EventDetailResponse;
 import com.example.eventday.entity.Event;
 import com.example.eventday.entity.TicketTier;
+import com.example.eventday.model.Category;
 import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.TicketTierRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -50,7 +51,7 @@ public class EventService {
         Sort springSort = parseSort(sort);
         Pageable pageable = PageRequest.of(page, size, springSort);
 
-        String normalizedCategory = normalizeCategory(category);
+        Category normalizedCategory = normalizeCategory(category);
 
         Page<Event> eventPage = eventRepository.findPublishedEvents(
                 normalizedCategory, search, location, pageable);
@@ -109,8 +110,8 @@ public class EventService {
         return EventDetailResponse.builder()
                 .id(event.getEventId().toString())
                 .title(event.getTitle())
-                .category(event.getCategory())
-                .categoryLabel(CATEGORY_LABEL.getOrDefault(event.getCategory(), event.getCategory()))
+                .category(Category.codeOf(event.getCategory()))
+                .categoryLabel(categoryLabel(event))
                 .date(event.getStartDate())
                 .dateDisplay(event.getStartDate().format(DATE_DISPLAY_ID))
                 .location(event.getVenueName())
@@ -130,8 +131,8 @@ public class EventService {
         return EventCatalogResponse.EventItem.builder()
                 .id(event.getEventId().toString())
                 .title(event.getTitle())
-                .category(event.getCategory())
-                .categoryLabel(CATEGORY_LABEL.getOrDefault(event.getCategory(), event.getCategory()))
+                .category(Category.codeOf(event.getCategory()))
+                .categoryLabel(categoryLabel(event))
                 .date(event.getStartDate())
                 .dateDisplay(event.getStartDate().format(DATE_DISPLAY))
                 .time(event.getStartDate().format(TIME_FORMAT))
@@ -171,11 +172,15 @@ public class EventService {
         return "Rp " + String.format("%,d", price.longValue()).replace(",", ".");
     }
 
-    private String normalizeCategory(String category) {
-        if (category == null || category.isBlank() || "Semua".equalsIgnoreCase(category) || "ALL".equalsIgnoreCase(category)) {
+    private Category normalizeCategory(String category) {
+        return Category.fromString(category);
+    }
+
+    private String categoryLabel(Event event) {
+        if (event.getCategory() == null) {
             return null;
         }
-        return category.toUpperCase().replace(" ", "_");
+        return CATEGORY_LABEL.getOrDefault(event.getCategory().name(), event.getCategory().getLabel());
     }
 
     private Sort parseSort(String sort) {
