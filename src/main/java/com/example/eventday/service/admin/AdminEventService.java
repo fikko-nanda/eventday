@@ -27,7 +27,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-
+@SuppressWarnings("null")
 @Slf4j
 @Service
 @RequiredArgsConstructor
