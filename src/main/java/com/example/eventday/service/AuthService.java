@@ -380,6 +380,7 @@ public class AuthService {
     @Transactional
     public void logout(UUID userId) {
         authRepository.findByUserUserId(userId).ifPresent(auth -> {
+            User user = auth.getUser();
             // Cukup null-kan token: JwtAuthenticationFilter menolak token yang
             // tidak sama dengan auth.aksesToken, jadi token lama langsung mati.
             // Status TIDAK diubah agar user tetap bisa login kembali.
@@ -387,6 +388,10 @@ public class AuthService {
             auth.setExpiredToken(null);
             auth.setUpdatedAt(LocalDateTime.now());
             authRepository.save(auth);
+
+            if (user != null) {
+                auditLogService.log(user.getUserId(), user.getName(), "LOGOUT", "User logout: " + user.getEmail());
+            }
         });
     }
 }
