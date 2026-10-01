@@ -1,10 +1,16 @@
 package com.example.eventday.controller;
 
 import com.example.eventday.dto.ApiResponse;
+import com.example.eventday.dto.TransactionHistoryResponse;
 import com.example.eventday.dto.TicketDetailResponse;
 import com.example.eventday.entity.TicketItem;
 import com.example.eventday.service.TicketService;
+import com.example.eventday.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,12 +28,15 @@ import java.util.UUID;
 public class TicketController {
 
     private final TicketService ticketService;
+    private final UserService userService;
 
     // Menerima parameter userEmail opsional dari query request, fallback ke token
-    // Authentication
+    // Authentication - Sekarang return Page<Order> (list order) untuk pagination
     @GetMapping("/my-tickets")
-    public ResponseEntity<ApiResponse<List<TicketItem>>> getMyTickets(
+    public ResponseEntity<ApiResponse<Page<TransactionHistoryResponse>>> getMyTickets(
             @RequestParam(value = "userEmail", required = false) String userEmail,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
 
         String targetEmail = resolveUserEmail(userEmail, authentication);
@@ -37,8 +46,16 @@ public class TicketController {
                     .body(ApiResponse.badRequest("Pengguna tidak terautentikasi atau email tidak ditemukan"));
         }
 
-        List<TicketItem> tickets = ticketService.getTicketsByEmail(targetEmail);
-        return ResponseEntity.ok(ApiResponse.success("Daftar tiket user", tickets));
+        // Get userId dari email untuk query order
+        UUID userId = userService.getUserIdByEmail(targetEmail);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.badRequest("User tidak ditemukan"));
+        }
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<TransactionHistoryResponse> orders = userService.getTransactionHistory(userId, pageable);
+        return ResponseEntity.ok(ApiResponse.success("Daftar order tiket user", orders));
     }
 
     @GetMapping("/by-order/{orderId}")

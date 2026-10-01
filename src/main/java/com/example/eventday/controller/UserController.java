@@ -10,6 +10,10 @@ import com.example.eventday.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,7 +25,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -120,8 +123,12 @@ public class UserController {
     }
 
     @GetMapping("/transactions/history")
-    public ApiResponse<List<TransactionHistoryResponse>> getTransactionHistory(Authentication authentication) {
+    public ApiResponse<Page<TransactionHistoryResponse>> getTransactionHistory(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
         UUID userId = getAuthenticatedUserId(authentication);
-        return ApiResponse.ok("Berhasil mengambil riwayat transaksi", userService.getTransactionHistory(userId));
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        return ApiResponse.ok("Berhasil mengambil riwayat transaksi", userService.getTransactionHistory(userId, pageable));
     }
 }

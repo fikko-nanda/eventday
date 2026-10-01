@@ -6,6 +6,7 @@ import com.example.eventday.repository.EventRepository;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.OrganizerPayoutRepository;
 import com.example.eventday.repository.OrganizerRepository;
+import com.example.eventday.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -29,6 +30,7 @@ public class OrganizerPayoutService {
     private final OrganizerPayoutRepository organizerPayoutRepository;
     private final EventRepository eventRepository;
     private final OrganizerBalanceService balanceService;
+    private final AuditLogService auditLogService;
 
     public List<Map<String, Object>> getBankAccounts() {
         UUID uid = helperService.currentUserId();
@@ -166,6 +168,11 @@ public class OrganizerPayoutService {
                 entity.setStatus("PENDING_APPROVAL");
 
                 organizerPayoutRepository.save(entity);
+
+                // Audit log: CREATE_PAYOUT
+                String detail = String.format("Pengajuan payout dibuat: Organizer %s, Amount %s, Bank %s, Status %s",
+                        organizer.getNameOrganizer(), amount, entity.getBankName(), entity.getStatus());
+                auditLogService.log(organizer.getUser().getUserId(), organizer.getNameOrganizer(), "CREATE_PAYOUT", detail);
 
                 Map<String, Object> payout = new HashMap<>();
                 payout.put("payout_id", entity.getPayoutId().toString());

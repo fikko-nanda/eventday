@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,8 +40,9 @@ public class AdminSettingsService {
     private String maxFileSize;
 
     @Transactional(readOnly = true)
-    public Page<AuditLog> getAuditLogs(int page, int size) {
-        return auditLogRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size));
+    public Page<AuditLog> getAuditLogs(int page, int size, String search, String category, LocalDateTime startDate, LocalDateTime endDate) {
+        Pageable pageable = PageRequest.of(page, size);
+        return auditLogRepository.findByFilters(search, category, startDate, endDate, pageable);
     }
 
     @Transactional(readOnly = true)

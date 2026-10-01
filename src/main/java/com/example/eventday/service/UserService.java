@@ -12,13 +12,13 @@ import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -100,21 +100,27 @@ public void changePassword(UUID userId, ChangePasswordRequest request) {
 }
 
     @Transactional(readOnly = true)
-        public List<TransactionHistoryResponse> getTransactionHistory(UUID userId) {
-            List<Order> orders = orderRepository.findByCustomerUserId(userId);
+    public Page<TransactionHistoryResponse> getTransactionHistory(UUID userId, Pageable pageable) {
+        Page<Order> orders = orderRepository.findByCustomerUserId(userId, pageable);
 
-            return orders.stream().map(order -> TransactionHistoryResponse.builder()
-                    .orderId(order.getOrderId())
-                    .orderNumber("ORD-" + order.getOrderId().toString().substring(0, 8).toUpperCase())
-                    .eventTitle(order.getEvent() != null ? order.getEvent().getTitle() : "-")
-                    .ticketTierName(order.getTicketTier() != null ? order.getTicketTier().getTierName() : "-")
-                    .quantity(order.getQuantity())
-                    .totalAmount(order.getTotalAmount())
-                    .status(order.getStatus() != null ? order.getStatus() : "PENDING") // Hapus .name() jika status di entity berupa String
-                    .createdAt(order.getCreatedAt())
-                    .expiredAt(order.getExpiredAt())
-                    .build()
-            ).collect(Collectors.toList());
-        }
+        return orders.map(order -> TransactionHistoryResponse.builder()
+                .orderId(order.getOrderId())
+                .orderNumber("ORD-" + order.getOrderId().toString().substring(0, 8).toUpperCase())
+                .eventTitle(order.getEvent() != null ? order.getEvent().getTitle() : "-")
+                .ticketTierName(order.getTicketTier() != null ? order.getTicketTier().getTierName() : "-")
+                .quantity(order.getQuantity())
+                .totalAmount(order.getTotalAmount())
+                .status(order.getStatus() != null ? order.getStatus() : "PENDING")
+                .createdAt(order.getCreatedAt())
+                .expiredAt(order.getExpiredAt())
+                .build());
+    }
+
+    @Transactional(readOnly = true)
+    public UUID getUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(User::getUserId)
+                .orElse(null);
+    }
         
 }

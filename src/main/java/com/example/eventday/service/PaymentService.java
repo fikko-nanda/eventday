@@ -4,6 +4,7 @@ import com.example.eventday.dto.*;
 import com.example.eventday.entity.Order;
 import com.example.eventday.event.OrderCreatedEvent;
 import com.example.eventday.repository.OrderRepository;
+import com.example.eventday.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,7 +30,8 @@ public class PaymentService {
     private final TicketService ticketService;
     private final EmailService emailService;
     private final OrderService orderService;
-    private final ApplicationEventPublisher eventPublisher; // Injeksi Publisher Event
+    private final ApplicationEventPublisher eventPublisher;
+    private final AuditLogService auditLogService;
 
     @Value("${midtrans.server-key:}")
     private String serverKey;
@@ -208,6 +210,17 @@ public class PaymentService {
             }
             orderRepository.save(order);
 
+            // Audit log: PAYMENT_SUCCESS
+            String customerName = order.getCustomer() != null ? order.getCustomer().getName() : "Unknown";
+            String customerEmail = order.getCustomer() != null ? order.getCustomer().getEmail() : "";
+            UUID customerId = order.getCustomer() != null ? order.getCustomer().getUserId() : null;
+            String eventTitle = order.getEvent() != null ? order.getEvent().getTitle() : "-";
+            String detail = String.format("Pembayaran sukses: Order %s, Event %s, Amount %s, Midtrans Transaction %s",
+                    orderIdStr, eventTitle, order.getTotalAmount(), transactionId);
+            if (customerId != null) {
+                auditLogService.log(customerId, customerName, "PAYMENT_SUCCESS", detail);
+            }
+
             // Memicu Event agar saldo EO diperbarui otomatis
             eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
 
@@ -219,11 +232,11 @@ public class PaymentService {
 
                 String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
                         ? order.getCustomer().getEmail() : "";
-                String eventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
+                String emailEventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
                         ? order.getEvent().getTitle() : "Eventday Ticket";
 
                 if (!email.isBlank()) {
-                    emailService.sendOrderConfirmationEmail(email, orderIdStr, eventTitle, order.getQuantity());
+                    emailService.sendOrderConfirmationEmail(email, orderIdStr, emailEventTitle, order.getQuantity());
                 }
             } catch (Exception e) {
                 log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
@@ -233,6 +246,17 @@ public class PaymentService {
             orderService.handleExpiredOrCancelledOrder(order);
             orderRepository.save(order);
             log.info("Order ID {} dibatalkan/expired.", orderIdStr);
+
+            // Audit log: PAYMENT_FAILED
+            String failedStatus = "EXPIRED".equalsIgnoreCase(transactionStatus) ? "EXPIRED" : "CANCELLED";
+            String customerName = order.getCustomer() != null ? order.getCustomer().getName() : "Unknown";
+            UUID customerId = order.getCustomer() != null ? order.getCustomer().getUserId() : null;
+            String eventTitle = order.getEvent() != null ? order.getEvent().getTitle() : "-";
+            String detail = String.format("Pembayaran gagal/dibatalkan: Order %s, Event %s, Status Midtrans %s, Amount %s",
+                    orderIdStr, eventTitle, transactionStatus, order.getTotalAmount());
+            if (customerId != null) {
+                auditLogService.log(customerId, customerName, "PAYMENT_FAILED", detail);
+            }
         }
     }
 

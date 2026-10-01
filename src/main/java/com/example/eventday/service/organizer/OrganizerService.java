@@ -5,6 +5,7 @@ import com.example.eventday.entity.User;
 import com.example.eventday.repository.AuthRepository;
 import com.example.eventday.repository.OrganizerRepository;
 import com.example.eventday.repository.UserRepository;
+import com.example.eventday.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,6 +26,7 @@ public class OrganizerService {
     private final UserRepository userRepository;
     private final AuthRepository authRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public Map<String, Object> registerOrganizer(Map<String, Object> request, 
@@ -173,6 +175,12 @@ public class OrganizerService {
 
     public void logout() {
         UUID uid = helperService.currentUserId();
+        if (uid != null) {
+            User user = userRepository.findById(uid).orElse(null);
+            if (user != null) {
+                auditLogService.log(user.getUserId(), user.getName(), "LOGOUT", "Organizer logout: " + user.getEmail());
+            }
+        }
         log.info("Organizer logout: {}", uid);
     }
 }
