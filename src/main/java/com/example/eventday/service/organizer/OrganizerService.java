@@ -6,6 +6,7 @@ import com.example.eventday.repository.AuthRepository;
 import com.example.eventday.repository.OrganizerRepository;
 import com.example.eventday.repository.UserRepository;
 import com.example.eventday.service.AuditLogService;
+import com.example.eventday.util.BankAccountValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -85,7 +86,7 @@ public class OrganizerService {
                 .nameOrganizer(name)
                 .npwpNumber(getStr(request, "npwp_number", "npwp", "npwpNumber"))
                 .bankName(getStr(request, "bank_name", "bankName"))
-                .bankAccountNumber(getStr(request, "bank_account_number", "account_number", "bankAccountNumber"))
+                .bankAccountNumber(BankAccountValidator.clean(getStr(request, "bank_account_number", "account_number", "bankAccountNumber")))
                 .cvUrl(cvUrl)
                 .portfolioUrl(portfolioUrl)
                 .aktaPerusahaan(aktaUrl)

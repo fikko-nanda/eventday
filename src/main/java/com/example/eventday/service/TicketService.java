@@ -46,12 +46,18 @@ public class TicketService {
 
         if (attendees != null && !attendees.isEmpty()) {
             for (Attendee attendee : attendees) {
+                // saveAttendees tidak mewajibkan identityNumber, sedangkan attendee_nik NOT NULL di DB.
+                String nik = (attendee.getIdentityNumber() != null && !attendee.getIdentityNumber().isBlank())
+                        ? attendee.getIdentityNumber()
+                        : "-";
                 TicketItem ticket = generateTicket(
                         order,
                         tier,
-                        attendee.getFullName(),
+                        (attendee.getFullName() != null && !attendee.getFullName().isBlank())
+                                ? attendee.getFullName()
+                                : "Pemegang Tiket",
                         attendee.getEmail(),
-                        attendee.getIdentityNumber());
+                        nik);
                 generatedTickets.add(ticket);
             }
         } else {
@@ -62,12 +68,14 @@ public class TicketService {
             int qty = order.getQuantity() != null ? order.getQuantity() : 1;
 
             for (int i = 0; i < qty; i++) {
+                // attendee_nik bertipe NOT NULL di DB, jadi harus diisi walau pesertanya belum
+                // mengirim NIK (mis. checkout tanpa data attendees).
                 TicketItem ticket = generateTicket(
                         order,
                         tier,
                         "Pemegang Tiket " + (i + 1),
                         email,
-                        null);
+                        "-");
                 generatedTickets.add(ticket);
             }
         }

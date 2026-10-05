@@ -27,8 +27,6 @@ import java.util.UUID;
 public class PaymentService {
 
     private final OrderRepository orderRepository;
-    private final TicketService ticketService;
-    private final EmailService emailService;
     private final OrderService orderService;
     private final ApplicationEventPublisher eventPublisher;
     private final AuditLogService auditLogService;
@@ -123,22 +121,6 @@ public class PaymentService {
         eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
 
         log.info("Order ID {} berhasil diubah menjadi PAID via verifikasi manual", orderIdStr);
-
-        try {
-            ticketService.generateTicketsForOrder(order);
-            log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
-
-            String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
-                    ? order.getCustomer().getEmail() : "";
-            String eventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
-                    ? order.getEvent().getTitle() : "Eventday Ticket";
-
-            if (!email.isBlank()) {
-                emailService.sendOrderConfirmationEmail(email, orderIdStr, eventTitle, order.getQuantity());
-            }
-        } catch (Exception e) {
-            log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
-        }
     }
 
     @Transactional
@@ -225,22 +207,6 @@ public class PaymentService {
             eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
 
             log.info("Order ID {} resmi PAID", orderIdStr);
-
-            try {
-                ticketService.generateTicketsForOrder(order);
-                log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
-
-                String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
-                        ? order.getCustomer().getEmail() : "";
-                String emailEventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
-                        ? order.getEvent().getTitle() : "Eventday Ticket";
-
-                if (!email.isBlank()) {
-                    emailService.sendOrderConfirmationEmail(email, orderIdStr, emailEventTitle, order.getQuantity());
-                }
-            } catch (Exception e) {
-                log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
-            }
         } else if ("cancel".equalsIgnoreCase(transactionStatus) || "deny".equalsIgnoreCase(transactionStatus) || "expire".equalsIgnoreCase(transactionStatus)) {
             order.setStatus("EXPIRED".equalsIgnoreCase(transactionStatus) ? "EXPIRED" : "CANCELLED");
             orderService.handleExpiredOrCancelledOrder(order);
