@@ -5,6 +5,7 @@ import com.example.eventday.dto.RefundDetailResponse;
 import com.example.eventday.dto.RefundRequest;
 import com.example.eventday.service.RefundService;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -22,7 +23,7 @@ public class RefundController {
     private final RefundService refundService;
 
     @PostMapping({"/tickets/refund/request", "/refund/submit"})
-    public ResponseEntity<ApiResponse<RefundDetailResponse>> submitRefund(@RequestBody RefundRequest request) {
+    public ResponseEntity<ApiResponse<RefundDetailResponse>> submitRefund(@Valid @RequestBody RefundRequest request) {
         RefundDetailResponse response = refundService.submitRefund(request);
         return ResponseEntity.ok(ApiResponse.success("Pengajuan refund berhasil dibuat", response));
     }
