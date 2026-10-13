@@ -4,6 +4,7 @@ import com.example.eventday.dto.admin.AdminTransactionListResponse;
 import com.example.eventday.dto.admin.AdminTransactionResponse;
 import com.example.eventday.dto.admin.AdminTransactionStatusRequest;
 import com.example.eventday.entity.Order;
+import com.example.eventday.event.OrderCreatedEvent;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.service.AuditLogService;
 import com.example.eventday.service.OrderService;
@@ -11,6 +12,7 @@ import com.example.eventday.util.CsvUtil;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +34,7 @@ public class AdminTransactionService {
     private final OrderRepository orderRepository;
     private final OrderService orderService;
     private final AuditLogService auditLogService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public Page<AdminTransactionListResponse> getTransactions(String status, UUID eventId, UUID userId,
@@ -73,6 +76,11 @@ public class AdminTransactionService {
         }
 
         orderRepository.save(order);
+
+        // Terbitkan e-ticket + kirim ke email peserta, sama seperti alur webhook Midtrans.
+        if ("PAID".equals(statusUpper)) {
+            eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
+        }
 
         auditLogService.log(adminId, "ADMIN", "UPDATE_TRANSACTION_STATUS",
                 "Status transaksi " + orderId + " diubah dari " + oldStatus + " menjadi " + statusUpper

@@ -25,6 +25,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -320,7 +321,11 @@ class AuthFlowIntegrationTest {
         mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"identifier\":\"nouser\",\"password\":\"nopass\"}"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/events"))
+        // Katalog event sengaja publik (SecurityConfig: GET /api/events/** permitAll)
+        mockMvc.perform(get("/api/events"))
+                .andExpect(status().isOk());
+        // Endpoint terlindungi harus ditolak tanpa token
+        mockMvc.perform(get("/api/user/profile"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.msg").isNotEmpty());

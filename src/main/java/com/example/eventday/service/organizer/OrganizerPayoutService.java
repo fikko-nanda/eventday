@@ -7,6 +7,7 @@ import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.OrganizerPayoutRepository;
 import com.example.eventday.repository.OrganizerRepository;
 import com.example.eventday.service.AuditLogService;
+import com.example.eventday.util.BankAccountValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -163,7 +164,8 @@ public class OrganizerPayoutService {
 
                 entity.setAmount(amount);
                 entity.setBankName((String) request.getOrDefault("bank_name", request.getOrDefault("bankName", "BCA")));
-                entity.setBankAccountNumber((String) request.getOrDefault("account_number", request.getOrDefault("accountNumber", "")));
+                entity.setBankAccountNumber(BankAccountValidator.clean(
+                        request.getOrDefault("account_number", request.getOrDefault("accountNumber", null))));
                 entity.setAccountHolder((String) request.getOrDefault("account_holder", request.getOrDefault("accountHolderName", "")));
                 entity.setStatus("PENDING_APPROVAL");
 

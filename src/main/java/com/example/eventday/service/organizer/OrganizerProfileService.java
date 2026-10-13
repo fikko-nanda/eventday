@@ -4,6 +4,7 @@ import com.example.eventday.entity.Organizer;
 import com.example.eventday.entity.User;
 import com.example.eventday.repository.OrganizerRepository;
 import com.example.eventday.repository.UserRepository;
+import com.example.eventday.util.BankAccountValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -83,7 +84,12 @@ public class OrganizerProfileService {
                 if (payload.containsKey("npwp")) o.setNpwpNumber((String) payload.get("npwp"));
                 if (payload.containsKey("npwp_number")) o.setNpwpNumber((String) payload.get("npwp_number"));
                 if (payload.containsKey("bank_name")) o.setBankName((String) payload.get("bank_name"));
-                if (payload.containsKey("bank_account_number")) o.setBankAccountNumber((String) payload.get("bank_account_number"));
+                Object rawAccountNumber = firstPresent(payload, "bank_account_number", "account_number", "bankAccountNumber", "accountNumber");
+                if (rawAccountNumber != null) {
+                    String cleaned = BankAccountValidator.clean(rawAccountNumber);
+                    o.setBankAccountNumber(cleaned);
+                    payload.put("bank_account_number", cleaned);
+                }
                 o.setUpdatedAt(LocalDateTime.now());
                 organizerRepository.save(o);
 
@@ -149,5 +155,15 @@ public class OrganizerProfileService {
         docs.put("ktp_name", "KTP_PIC.jpg");
         docs.put("mock", true);
         return docs;
+    }
+
+    private static Object firstPresent(Map<String, Object> payload, String... keys) {
+        for (String key : keys) {
+            Object value = payload.get(key);
+            if (value != null && !String.valueOf(value).trim().isEmpty()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

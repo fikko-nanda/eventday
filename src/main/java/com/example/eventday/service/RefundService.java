@@ -7,6 +7,7 @@ import com.example.eventday.entity.Order;
 import com.example.eventday.entity.RefundRequestEntity;
 import com.example.eventday.repository.OrderRepository;
 import com.example.eventday.repository.RefundRepository;
+import com.example.eventday.util.BankAccountValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -126,7 +127,7 @@ public class RefundService {
                 .amount(amount)
                 .reason(request.getReason())
                 .bankName(request.getBankCode())
-                .bankAccountNumber(request.getAccountNumber())
+                .bankAccountNumber(BankAccountValidator.clean(request.getAccountNumber()))
                 .accountHolder(request.getAccountHolderName())
                 .status("PENDING")
                 .createdAt(LocalDateTime.now())

@@ -24,7 +24,7 @@ public class RefundController {
     private final RefundService refundService;
 
     @PostMapping({"/tickets/refund/request", "/refund/submit"})
-    public ResponseEntity<ApiResponse<RefundDetailResponse>> submitRefund(@RequestBody RefundRequest request) {
+    public ResponseEntity<ApiResponse<RefundDetailResponse>> submitRefund(@Valid @RequestBody RefundRequest request) {
         RefundDetailResponse response = refundService.submitRefund(request);
         return ResponseEntity.ok(ApiResponse.success("Pengajuan refund berhasil dibuat", response));
     }
