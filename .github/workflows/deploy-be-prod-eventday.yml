@@ -16,9 +16,46 @@ jobs:
       - name: Setup Java 21 LTS
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
+          java-version: "21"
+          distribution: "temurin"
+          cache:
+            maven
+
+            # Mengganti hanya spring.mail.password
+      - name: Update SMTP Password
+        env:
+          SPRING_MAIL_PASSWORD: ${{ secrets.SENDGRID_KEYS }}
+        run: |
+          python3 <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path("src/main/resources/application.properties")
+          password = os.environ.get("SPRING_MAIL_PASSWORD", "")
+
+          if not password or "\n" in password or "\r" in password:
+              sys.exit("ERROR: SMTP secret kosong atau tidak valid.")
+
+          content = path.read_text(encoding="utf-8")
+
+          pattern = r"(?m)^spring\.mail\.password=.*$"
+          updated, count = re.subn(
+              pattern,
+              lambda _: "spring.mail.password=" + password,
+              content
+          )
+
+          if count != 1:
+              sys.exit(
+                  f"ERROR: Ditemukan {count} baris spring.mail.password; "
+                  "harus tepat satu."
+              )
+
+          path.write_text(updated, encoding="utf-8")
+          print("SMTP password property updated successfully.")
+          PY
 
       - name: Build Executable JAR with Maven
         run: |
@@ -46,7 +83,7 @@ jobs:
           script: |
             # Standarisasi nama file JAR untuk dieksekusi oleh Systemd
             mv /var/www/eventday-be/*.jar /var/www/eventday-be/eventday-backend.jar
-            
+
             # Restart service backend secara otomatis
             sudo systemctl restart eventday
             sudo systemctl status eventday
