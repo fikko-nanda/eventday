@@ -7,6 +7,7 @@ import com.example.eventday.entity.TicketItem;
 import com.example.eventday.service.TicketService;
 import com.example.eventday.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping({ "/api/tickets", "/api/v1/tickets" })
 @RequiredArgsConstructor
@@ -42,20 +44,28 @@ public class TicketController {
         String targetEmail = resolveUserEmail(userEmail, authentication);
 
         if (targetEmail == null || targetEmail.isBlank()) {
+            log.warn("GET /my-tickets: Email tidak ditemukan dari parameter atau token");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.badRequest("Pengguna tidak terautentikasi atau email tidak ditemukan"));
+                    .body(ApiResponse.unauthorized("Pengguna tidak terautentikasi atau email tidak ditemukan"));
         }
 
         // Get userId dari email untuk query order
         UUID userId = userService.getUserIdByEmail(targetEmail);
         if (userId == null) {
+            log.warn("GET /my-tickets: User tidak ditemukan untuk email: {}", targetEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.badRequest("User tidak ditemukan"));
+                    .body(ApiResponse.unauthorized("User tidak ditemukan"));
         }
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<TransactionHistoryResponse> orders = userService.getTransactionHistory(userId, pageable);
-        return ResponseEntity.ok(ApiResponse.success("Daftar order tiket user", orders));
+        try {
+            Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+            Page<TransactionHistoryResponse> orders = userService.getTransactionHistory(userId, pageable);
+            return ResponseEntity.ok(ApiResponse.success("Daftar order tiket user", orders));
+        } catch (Exception e) {
+            log.error("GET /my-tickets: Error saat mengambil riwayat transaksi untuk user: {}", targetEmail, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.internalError("Gagal mengambil riwayat transaksi: " + e.getMessage()));
+        }
     }
 
     @GetMapping("/by-order/{orderId}")
@@ -132,6 +142,7 @@ public class TicketController {
     /**
      * Helper method standar Spring Security untuk mengambil identitas
      * pengguna/email
+     * Format principal: "userId:email"
      */
     private String resolveUserEmail(String paramEmail, Authentication authentication) {
         if (paramEmail != null && !paramEmail.isBlank()) {
@@ -145,7 +156,13 @@ public class TicketController {
                 return userDetails.getUsername();
             }
 
-            return authentication.getName();
+            String principalStr = authentication.getName();
+            // Format principal: "userId:email"
+            if (principalStr != null && principalStr.contains(":")) {
+                return principalStr.split(":")[1];
+            }
+
+            return principalStr;
         }
 
         return null;

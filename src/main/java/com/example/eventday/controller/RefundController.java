@@ -5,7 +5,7 @@ import com.example.eventday.dto.RefundDetailResponse;
 import com.example.eventday.dto.RefundRequest;
 import com.example.eventday.service.RefundService;
 import lombok.RequiredArgsConstructor;
-import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -58,11 +59,27 @@ public class RefundController {
         if (authentication == null) {
             return ResponseEntity.badRequest().body(ApiResponse.badRequest("User belum terautentikasi"));
         }
-        
-        String currentUserIdStr = authentication.getName();
-        UUID customerId = UUID.fromString(currentUserIdStr);
+
+        UUID customerId = getAuthenticatedUserId(authentication);
 
         List<RefundDetailResponse> history = refundService.getRefundHistoryByCustomer(customerId);
         return ResponseEntity.ok(ApiResponse.success("Riwayat pengajuan refund", history));
+    }
+
+    private UUID getAuthenticatedUserId(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null) {
+            throw new RuntimeException("Sesi login tidak ditemukan atau telah kedaluwarsa!");
+        }
+
+        String principal = authentication.getName();
+        // Format principal: "userId:email" atau UUID saja
+        String userIdStr = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        try {
+            return UUID.fromString(userIdStr);
+        } catch (IllegalArgumentException e) {
+            log.error("Format User ID pada sesi tidak valid: {}", principal);
+            throw new RuntimeException("Format User ID pada sesi tidak valid! Silakan login ulang.");
+        }
     }
 }

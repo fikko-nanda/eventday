@@ -1,5 +1,4 @@
 package com.example.eventday.service.organizer;
-
 import com.example.eventday.entity.Organizer;
 import com.example.eventday.entity.Event;
 import com.example.eventday.entity.TicketTier;
@@ -19,21 +18,24 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
+
 public class OrganizerEventService {
 
     private final OrganizerHelperService helperService;
+
     private final EventRepository eventRepository;
+
     private final OrderRepository orderRepository;
+
     private final TicketTierRepository ticketTierRepository;
+
     private final FileStorageService fileStorageService;
 
     public Map<String, Object> uploadBanner(MultipartFile file) {
@@ -45,10 +47,21 @@ public class OrganizerEventService {
         return data;
     }
 
+    public Map<String, Object> uploadLineupImage(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File lineup wajib diisi");
+        }
+        String url = fileStorageService.saveImage(file, "event-lineups");
+        Map<String, Object> data = new HashMap<>();
+        data.put("lineup_image_url", url);
+        data.put("file_name", file.getOriginalFilename());
+        data.put("file_size", file.getSize());
+        return data;
+    }
+
     public List<Map<String, Object>> getOrganizerEvents() {
         Organizer org = helperService.resolveCurrentOrganizer();
         if (org == null) return Collections.emptyList();
-
         return eventRepository.findByOrganizer_OrganizerIdOrderByCreatedAtDesc(org.getOrganizerId())
                 .stream()
                 .map(this::mapEventToResponse)
@@ -58,7 +71,6 @@ public class OrganizerEventService {
     public List<Map<String, Object>> getDraftEvents() {
         Organizer org = helperService.resolveCurrentOrganizer();
         if (org == null) return Collections.emptyList();
-
         return eventRepository.findByOrganizer_OrganizerIdAndStatusOrderByCreatedAtDesc(org.getOrganizerId(), "DRAFT")
                 .stream()
                 .map(this::mapEventToResponse)
@@ -69,36 +81,31 @@ public class OrganizerEventService {
         Organizer org = helperService.resolveCurrentOrganizer();
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
-
         // Ownership Validation
         if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
         }
-
         return mapEventToResponse(event);
     }
 
     @Transactional
+
     public Map<String, Object> createEvent(Map<String, Object> payload, MultipartFile bannerFile) {
         Organizer org = helperService.resolveCurrentOrganizer();
         UUID currentUid = helperService.currentUserId();
-
         // Validasi judul unik (case-insensitive)
         String rawTitle = (String) payload.getOrDefault("title", "Untitled Event");
         String title = rawTitle != null ? rawTitle.trim() : "Untitled Event";
         if (eventRepository.existsByTitleIgnoreCase(title)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Judul event '" + title + "' sudah digunakan. Silakan gunakan judul lain.");
         }
-
         if (bannerFile != null && !bannerFile.isEmpty()) {
             payload.put("banner_url", fileStorageService.saveImage(bannerFile, "event-banners"));
         }
-
         LocalDateTime start = parseDateTime(payload.get("startDate") != null ? payload.get("startDate") : payload.get("start_date"));
         if (start == null) start = LocalDateTime.now().plusDays(7);
         LocalDateTime end = parseDateTime(payload.get("endDate") != null ? payload.get("endDate") : payload.get("end_date"));
         if (end == null) end = start.plusDays(1);
-
         Event event = Event.builder()
                 .organizer(org)
                 .title(title)
@@ -114,30 +121,24 @@ public class OrganizerEventService {
                 .isFeatured(false)
                 .createBy(currentUid)
                 .build();
-
         Event saved = eventRepository.save(event);
-
         // --- PROSES SIMPAN TICKET TIERS ---
         List<Map<String, Object>> ticketsResponse = new ArrayList<>();
         Object ticketsRaw = payload.get("tickets");
-
         if (ticketsRaw instanceof List<?> ticketList) {
             for (Object item : ticketList) {
                 if (item instanceof Map<?, ?> rawMap) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> tMap = (Map<String, Object>) rawMap;
-
                     Object nameObj = tMap.get("tier_name");
                     if (nameObj == null) nameObj = tMap.get("tierName");
                     String tierName = nameObj != null ? String.valueOf(nameObj) : "Regular";
-
                     BigDecimal price = BigDecimal.ZERO;
                     if (tMap.get("price") != null) {
                         try {
                             price = new BigDecimal(String.valueOf(tMap.get("price")));
                         } catch (Exception ignored) {}
                     }
-
                     int totalQuota = 0;
                     Object quotaRaw = tMap.get("total_quota");
                     if (quotaRaw == null) quotaRaw = tMap.get("totalQuota");
@@ -147,7 +148,6 @@ public class OrganizerEventService {
                             totalQuota = Integer.parseInt(String.valueOf(quotaRaw));
                         } catch (Exception ignored) {}
                     }
-
                     TicketTier tier = TicketTier.builder()
                             .event(saved)
                             .tierName(tierName)
@@ -156,9 +156,7 @@ public class OrganizerEventService {
                             .availableQuota(totalQuota)
                             .createBy(currentUid)
                             .build();
-
                     TicketTier savedTier = ticketTierRepository.save(tier);
-
                     Map<String, Object> tierData = new HashMap<>();
                     tierData.put("tier_id", savedTier.getTierId() != null ? savedTier.getTierId().toString() : null);
                     tierData.put("tier_name", savedTier.getTierName());
@@ -169,28 +167,24 @@ public class OrganizerEventService {
                 }
             }
         }
-
         Map<String, Object> response = mapEventToResponse(saved);
         response.put("tickets", ticketsResponse);
         return response;
     }
 
     @Transactional
+
     public Map<String, Object> updateEvent(UUID eventId, Map<String, Object> payload, MultipartFile bannerFile) {
         Organizer org = helperService.resolveCurrentOrganizer();
-        
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
-
         // Ownership Validation
         if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
         }
-
         if (bannerFile != null && !bannerFile.isEmpty()) {
             payload.put("banner_url", fileStorageService.saveImage(bannerFile, "event-banners"));
         }
-
         // Validasi judul unik saat edit (mengecualikan event yang sedang diedit)
         if (payload.containsKey("title")) {
             String newTitle = String.valueOf(payload.get("title")).trim();
@@ -199,7 +193,6 @@ public class OrganizerEventService {
             }
             event.setTitle(newTitle);
         }
-
         if (payload.containsKey("description")) event.setDescription(str(payload.get("description")));
         if (payload.containsKey("category")) event.setCategory(parseCategory(str(payload.get("category"))));
         if (payload.containsKey("venueName")) event.setVenueName(str(payload.get("venueName")));
@@ -215,7 +208,6 @@ public class OrganizerEventService {
                     .collect(Collectors.joining(", ")));
         }
         if (payload.containsKey("lineup")) event.setLineup(normalizeLineup(payload.get("lineup")));
-
         if (payload.containsKey("startDate") || payload.containsKey("start_date") || payload.containsKey("eventDate")) {
             Object raw = payload.get("startDate") != null ? payload.get("startDate")
                     : (payload.get("start_date") != null ? payload.get("start_date") : payload.get("eventDate"));
@@ -226,18 +218,15 @@ public class OrganizerEventService {
             LocalDateTime ed = parseDateTime(payload.get("endDate") != null ? payload.get("endDate") : payload.get("end_date"));
             if (ed != null) event.setEndDate(ed);
         }
-
         // Update ticket tiers if provided (null/kosong → pertahankan tier lama)
         Object tiersObj = payload.get("ticketTiers") != null ? payload.get("ticketTiers") : payload.get("ticket_tiers");
         if (tiersObj instanceof List<?> tiersRaw && !tiersRaw.isEmpty()) {
             // Delete existing tiers
             ticketTierRepository.deleteByEvent_EventId(event.getEventId());
-
             for (Object item : tiersRaw) {
                 if (!(item instanceof Map<?, ?> rawMap)) continue;
                 @SuppressWarnings("unchecked")
                 Map<String, Object> tierData = (Map<String, Object>) rawMap;
-
                 TicketTier tier = new TicketTier();
                 tier.setEvent(event);
                 Object nameObj = tierData.get("tier_name") != null ? tierData.get("tier_name")
@@ -255,7 +244,6 @@ public class OrganizerEventService {
                 ticketTierRepository.save(tier);
             }
         }
-
         event.setUpdatedAt(LocalDateTime.now());
         event.setUpdatedBy(helperService.currentUserId());
         Event saved = eventRepository.save(event);
@@ -263,26 +251,23 @@ public class OrganizerEventService {
     }
 
     @Transactional
+
     public Map<String, Object> publishEvent(Map<String, Object> payload) {
         Organizer org = helperService.resolveCurrentOrganizer();
         String idStr = String.valueOf(payload.getOrDefault("eventId", payload.getOrDefault("event_id", payload.get("id"))));
         if (idStr == null || "null".equals(idStr)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Event ID wajib diisi");
         }
-
         Event event = eventRepository.findById(UUID.fromString(idStr))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
-
         // Ownership Validation
         if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
         }
-
         event.setStatus("PENDING_APPROVAL");
         event.setUpdatedAt(LocalDateTime.now());
         event.setUpdatedBy(helperService.currentUserId());
         Event saved = eventRepository.save(event);
-
         Map<String, Object> res = new HashMap<>();
         res.put("event_id", saved.getEventId().toString());
         res.put("title", saved.getTitle());
@@ -295,23 +280,19 @@ public class OrganizerEventService {
         Organizer org = helperService.resolveCurrentOrganizer();
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event tidak ditemukan"));
-
         // Ownership Validation
         if (event.getOrganizer() == null || !event.getOrganizer().getOrganizerId().equals(org.getOrganizerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Akses ditolak: Anda bukan pemilik event ini");
         }
-
         long ticketsSold = orderRepository.findAll().stream()
                 .filter(o -> o.getEvent() != null && o.getEvent().getEventId().equals(eventId))
                 .mapToLong(o -> o.getQuantity() != null ? o.getQuantity() : 0)
                 .sum();
-
         double revenue = orderRepository.findAll().stream()
                 .filter(o -> o.getEvent() != null && o.getEvent().getEventId().equals(eventId))
                 .filter(o -> "PAID".equals(o.getStatus()))
                 .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
                 .sum();
-
         Map<String, Object> summary = new HashMap<>();
         summary.put("event_id", event.getEventId().toString());
         summary.put("title", event.getTitle());
@@ -361,12 +342,12 @@ public class OrganizerEventService {
             return fallback;
         }
     }
-
-    /**
+    /*
      * Parsing kategori yang KEBAL ERROR untuk response mapping.
      * Selalu kembalikan kode kategori String yang valid (tidak pernah throw),
      * sehingga 1 baris data legacy tidak meruntuhkan seluruh list (400).
      */
+
     private String parseCategorySafely(Object rawCategory) {
         if (rawCategory == null) return "MUSIC_FESTIVAL";
         String val = rawCategory.toString().trim().toUpperCase();
@@ -394,9 +375,13 @@ public class OrganizerEventService {
     }
 
     // Konversi String kategori dari FE → enum Category.
+
     // TIDAK PERNAH memanggil Category.valueOf secara mentah — delegasi ke
+
     // Category.fromString() yang kebal error (try-catch di dalam).
+
     // null/kosong → OTHER agar kolom NOT NULL implisit tetap terisi.
+
     private Category parseCategory(String raw) {
         if (raw == null || raw.isBlank()) return Category.OTHER;
         Category parsed = Category.fromString(raw);
@@ -404,10 +389,15 @@ public class OrganizerEventService {
     }
 
     // Normalisasi lineup SEBELUM simpan ke entity (selalu JSON string):
+
     // - List (dari JSON array) → simpan JSON string-nya
+
     // - JsonNode Array → simpan string JSON-nya
+
     // - JsonNode Text / String "Artis A, Artis B" → pecah koma → [{"name":"Artis A","image":""}, ...] → JSON string
+
     // - null / kosong → null
+
     private String normalizeLineup(Object raw) {
         if (raw == null) return null;
         try {
@@ -495,6 +485,7 @@ public class OrganizerEventService {
     }
 
     // Parse lineup dari DB (String) → List of Map (kompatibel dengan frontend)
+
     private List<Map<String, String>> parseLineupToMap(String rawLineup) {
         if (rawLineup == null || rawLineup.isBlank()) {
             return new ArrayList<>();

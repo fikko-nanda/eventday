@@ -10,6 +10,7 @@ import com.example.eventday.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +28,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -40,10 +42,16 @@ public class UserController {
         if (authentication == null || authentication.getName() == null) {
             throw new RuntimeException("Sesi login tidak ditemukan atau telah kedaluwarsa!");
         }
+        
+        String principal = authentication.getName();
+        // Format principal: "userId:email" atau UUID saja
+        String userIdStr = principal.contains(":") ? principal.split(":")[0] : principal;
+        
         try {
-            return UUID.fromString(authentication.getName());
+            return UUID.fromString(userIdStr);
         } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Format User ID pada sesi tidak valid!");
+            log.error("Format User ID pada sesi tidak valid: {}", principal);
+            throw new RuntimeException("Format User ID pada sesi tidak valid! Silakan login ulang.");
         }
     }
 
@@ -127,8 +135,13 @@ public class UserController {
             Authentication authentication,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        UUID userId = getAuthenticatedUserId(authentication);
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return ApiResponse.ok("Berhasil mengambil riwayat transaksi", userService.getTransactionHistory(userId, pageable));
+        try {
+            UUID userId = getAuthenticatedUserId(authentication);
+            Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+            return ApiResponse.ok("Berhasil mengambil riwayat transaksi", userService.getTransactionHistory(userId, pageable));
+        } catch (Exception e) {
+            log.error("GET /transactions/history: Error saat mengambil riwayat transaksi", e);
+            return ApiResponse.internalError("Gagal mengambil riwayat transaksi: " + e.getMessage());
+        }
     }
 }

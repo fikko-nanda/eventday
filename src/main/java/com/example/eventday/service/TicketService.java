@@ -33,31 +33,28 @@ public class TicketService {
             throw new IllegalArgumentException("Order dan Order ID tidak boleh kosong");
         }
 
-        // Idempotency Check
+        // Idempotency Check - return existing tickets if already generated
         List<TicketItem> existingTickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
         if (existingTickets != null && !existingTickets.isEmpty()) {
+            log.info("DEBUG TICKET: Existing tickets found for order {}, count: {}", order.getOrderId(), existingTickets.size());
             return existingTickets;
         }
 
         String orderIdStr = order.getOrderId().toString();
         List<Attendee> attendees = attendeeRepository.findByOrderId(orderIdStr);
+        log.info("DEBUG TICKET: Found {} attendees for order {}", attendees != null ? attendees.size() : 0, orderIdStr);
         List<TicketItem> generatedTickets = new ArrayList<>();
         TicketTier tier = order.getTicketTier();
 
         if (attendees != null && !attendees.isEmpty()) {
             for (Attendee attendee : attendees) {
-                // saveAttendees tidak mewajibkan identityNumber, sedangkan attendee_nik NOT NULL di DB.
-                String nik = (attendee.getIdentityNumber() != null && !attendee.getIdentityNumber().isBlank())
-                        ? attendee.getIdentityNumber()
-                        : "-";
+                log.info("DEBUG TICKET: Creating ticket for attendee: {} ({})", attendee.getFullName(), attendee.getEmail());
                 TicketItem ticket = generateTicket(
                         order,
                         tier,
-                        (attendee.getFullName() != null && !attendee.getFullName().isBlank())
-                                ? attendee.getFullName()
-                                : "Pemegang Tiket",
+                        attendee.getFullName(),
                         attendee.getEmail(),
-                        nik);
+                        attendee.getIdentityNumber());
                 generatedTickets.add(ticket);
             }
         } else {
@@ -68,17 +65,16 @@ public class TicketService {
             int qty = order.getQuantity() != null ? order.getQuantity() : 1;
 
             for (int i = 0; i < qty; i++) {
-                // attendee_nik bertipe NOT NULL di DB, jadi harus diisi walau pesertanya belum
-                // mengirim NIK (mis. checkout tanpa data attendees).
                 TicketItem ticket = generateTicket(
                         order,
                         tier,
                         "Pemegang Tiket " + (i + 1),
                         email,
-                        "-");
+                        null);
                 generatedTickets.add(ticket);
             }
         }
+        log.info("DEBUG TICKET: Generated {} tickets for order {}", generatedTickets.size(), orderIdStr);
         return generatedTickets;
     }
 

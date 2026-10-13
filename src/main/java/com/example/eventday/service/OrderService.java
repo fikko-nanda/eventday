@@ -99,7 +99,7 @@ public class OrderService {
         }
     }
 
-    // 1. Simpan Data Peserta ke DB
+    // 1. Simpan Data Peserta ke DB (Idempotent - mencegah duplicate attendee)
     @Transactional
     public List<Attendee> saveAttendees(AttendeeRequest request) {
         if (request.getAttendees() == null || request.getAttendees().isEmpty()) {
@@ -119,6 +119,14 @@ public class OrderService {
 
         List<Attendee> savedList = new ArrayList<>();
         for (AttendeeRequest.AttendeeItem item : request.getAttendees()) {
+            // Idempotent check: cek apakah attendee dengan orderId dan email yang sama sudah ada
+            Optional<Attendee> existingAttendee = attendeeRepository.findByOrderIdAndEmail(request.getOrderId(), item.getEmail());
+            if (existingAttendee.isPresent()) {
+                log.info("Attendee sudah ada untuk order {} dan email {}, skip insert", request.getOrderId(), item.getEmail());
+                savedList.add(existingAttendee.get());
+                continue;
+            }
+
             Attendee attendee = new Attendee();
             attendee.setOrderId(request.getOrderId());
             attendee.setFullName(item.getFullName());
