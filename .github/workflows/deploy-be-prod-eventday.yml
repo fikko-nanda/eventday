@@ -94,6 +94,6 @@ jobs:
             mv -f eventday-backend.jar.new eventday-backend.jar
 
             sudo -n /usr/bin/systemctl restart eventday
-            sudo -n /usr/bin/systemctl is-active --quiet eventday
+            sudo -n /usr/bin/systemctl is-active eventday
 
             echo "Deployment completed successfully."
