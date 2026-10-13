@@ -33,19 +33,22 @@ public class TicketService {
             throw new IllegalArgumentException("Order dan Order ID tidak boleh kosong");
         }
 
-        // Idempotency Check
+        // Idempotency Check - return existing tickets if already generated
         List<TicketItem> existingTickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
         if (existingTickets != null && !existingTickets.isEmpty()) {
+            log.info("DEBUG TICKET: Existing tickets found for order {}, count: {}", order.getOrderId(), existingTickets.size());
             return existingTickets;
         }
 
         String orderIdStr = order.getOrderId().toString();
         List<Attendee> attendees = attendeeRepository.findByOrderId(orderIdStr);
+        log.info("DEBUG TICKET: Found {} attendees for order {}", attendees != null ? attendees.size() : 0, orderIdStr);
         List<TicketItem> generatedTickets = new ArrayList<>();
         TicketTier tier = order.getTicketTier();
 
         if (attendees != null && !attendees.isEmpty()) {
             for (Attendee attendee : attendees) {
+                log.info("DEBUG TICKET: Creating ticket for attendee: {} ({})", attendee.getFullName(), attendee.getEmail());
                 TicketItem ticket = generateTicket(
                         order,
                         tier,
@@ -71,6 +74,7 @@ public class TicketService {
                 generatedTickets.add(ticket);
             }
         }
+        log.info("DEBUG TICKET: Generated {} tickets for order {}", generatedTickets.size(), orderIdStr);
         return generatedTickets;
     }
 

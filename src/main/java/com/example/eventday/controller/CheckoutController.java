@@ -31,10 +31,22 @@ public class CheckoutController {
     @PostMapping("/checkout/initiate")
     public ResponseEntity<ApiResponse<Order>> initiateCheckout(
             Authentication authentication,
-            @RequestBody InitiateCheckoutRequest request) {
+            @Valid @RequestBody InitiateCheckoutRequest request) {
         UUID userId = null;
-        if (authentication != null && authentication.getPrincipal() instanceof UUID) {
-            userId = (UUID) authentication.getPrincipal();
+        if (authentication != null && authentication.getPrincipal() != null) {
+            String principal = authentication.getName();
+            // Format principal: "userId:email" atau UUID saja
+            String userIdStr = principal.contains(":") ? principal.split(":")[0] : principal;
+            try {
+                userId = UUID.fromString(userIdStr);
+            } catch (IllegalArgumentException e) {
+                log.error("Format User ID pada sesi tidak valid: {}", principal);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.unauthorized("Format User ID pada sesi tidak valid! Silakan login ulang."));
+            }
+        } else {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.unauthorized("Pengguna tidak terautentikasi"));
         }
         Order order = orderService.createOrder(userId, request);
         return ResponseEntity.ok(ApiResponse.success("Checkout diinisiasi", order));

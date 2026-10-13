@@ -18,6 +18,11 @@ target/
 *.iws
 *.iml
 *.ipr
+.vscode/
+.vscode/launch.json
+*.swp
+*.swo
+*~
 
 ### NetBeans ###
 /nbproject/private/
@@ -35,3 +40,11 @@ logs/
 *.log
 
 echo "cookies.txt" >> .gitignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+*.env.local
+*.env.*.local

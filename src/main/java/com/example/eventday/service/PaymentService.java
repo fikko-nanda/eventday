@@ -1,9 +1,12 @@
 package com.example.eventday.service;
 
+import com.example.eventday.dto.TicketDetailResponse;
 import com.example.eventday.dto.*;
 import com.example.eventday.entity.Order;
+import com.example.eventday.entity.TicketItem;
 import com.example.eventday.event.OrderCreatedEvent;
 import com.example.eventday.repository.OrderRepository;
+import com.example.eventday.repository.TicketItemRepository;
 import com.example.eventday.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +20,10 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -32,6 +38,7 @@ public class PaymentService {
     private final OrderService orderService;
     private final ApplicationEventPublisher eventPublisher;
     private final AuditLogService auditLogService;
+    private final TicketItemRepository ticketItemRepository;
 
     @Value("${midtrans.server-key:}")
     private String serverKey;
@@ -117,27 +124,65 @@ public class PaymentService {
         if (transactionId != null && !transactionId.isBlank()) {
             order.setTransactionIdGateway(transactionId);
         }
-        orderRepository.save(order);
+orderRepository.save(order);
 
         // Memicu Event agar saldo EO diperbarui otomatis
         eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
 
-        log.info("Order ID {} berhasil diubah menjadi PAID via verifikasi manual", orderIdStr);
+        log.info("Order ID {} resmi PAID", orderIdStr);
 
-        try {
-            ticketService.generateTicketsForOrder(order);
-            log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
+        // Guard clause: Only generate tickets if not already generated (prevent double generation)
+        List<TicketItem> existingTickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
+        if (existingTickets != null && !existingTickets.isEmpty()) {
+            log.info("Tiket sudah ada untuk Order ID: {}, skip generate", orderIdStr);
+} else {
+            try {
+                ticketService.generateTicketsForOrder(order);
+                log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
 
-            String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
-                    ? order.getCustomer().getEmail() : "";
-            String eventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
-                    ? order.getEvent().getTitle() : "Eventday Ticket";
+                String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
+                        ? order.getCustomer().getEmail() : "";
+                String eventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
+                        ? order.getEvent().getTitle() : "Eventday Ticket";
 
-            if (!email.isBlank()) {
-                emailService.sendOrderConfirmationEmail(email, orderIdStr, eventTitle, order.getQuantity());
+                if (!email.isBlank()) {
+                    emailService.sendOrderConfirmationEmail(email, orderIdStr, eventTitle, order.getQuantity());
+                }
+
+                // Flush untuk memastikan ticket items tertulis ke DB sebelum query
+                ticketItemRepository.flush();
+
+                // Kirim PDF tiket ke SETIAP attendee
+                List<TicketItem> tickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
+                log.info("DEBUG: Found {} tickets for order {}", tickets.size(), orderIdStr);
+                Set<String> sentEmails = new HashSet<>();
+
+                for (TicketItem ticket : tickets) {
+                    String attendeeEmail = ticket.getAttendeeEmail();
+                    String attendeeName = ticket.getAttendeeName();
+                    log.info("DEBUG: Processing ticket - attendeeEmail={}, attendeeName={}, ticketItemId={}",
+                            attendeeEmail, attendeeName, ticket.getTicketItemId());
+
+                    if (attendeeEmail == null || attendeeEmail.isBlank() || sentEmails.contains(attendeeEmail)) {
+                        log.warn("DEBUG: Skipping ticket - email blank/duplicate: {}", attendeeEmail);
+                        continue;
+                    }
+                    sentEmails.add(attendeeEmail);
+
+                    TicketDetailResponse ticketDetail = ticketService.getIssuedDetail(ticket.getTicketItemId().toString());
+                    log.info("DEBUG: Got ticket detail for ticketItemId={}, sending PDF to {}",
+                            ticket.getTicketItemId(), attendeeEmail);
+                    emailService.sendTicketPdf(attendeeEmail, attendeeName, ticketDetail);
+                    log.info("DEBUG: PDF ticket sent to {} for attendee {}", attendeeEmail, attendeeName);
+                }
+
+                // Kirim konfirmasi text ke pembeli (jika email beda dari attendee)
+                if (email != null && !email.isBlank() && !sentEmails.contains(email)) {
+                    emailService.sendOrderConfirmationEmail(email, orderIdStr, eventTitle, order.getQuantity());
+                }
+            } catch (Exception e) {
+                log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
             }
-        } catch (Exception e) {
-            log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
         }
     }
 
@@ -224,23 +269,53 @@ public class PaymentService {
             // Memicu Event agar saldo EO diperbarui otomatis
             eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
 
-            log.info("Order ID {} resmi PAID", orderIdStr);
+log.info("Order ID {} resmi PAID", orderIdStr);
 
+        // Guard clause: Only generate tickets if not already generated
+        List<TicketItem> existingTickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
+        if (existingTickets != null && !existingTickets.isEmpty()) {
+            log.info("Tiket sudah ada untuk Order ID: {}, skip generate", orderIdStr);
+        } else {
             try {
                 ticketService.generateTicketsForOrder(order);
                 log.info("Tiket berhasil diterbitkan untuk Order ID: {}", orderIdStr);
 
-                String email = (order.getCustomer() != null && order.getCustomer().getEmail() != null)
-                        ? order.getCustomer().getEmail() : "";
-                String emailEventTitle = (order.getEvent() != null && order.getEvent().getTitle() != null)
-                        ? order.getEvent().getTitle() : "Eventday Ticket";
+                // Flush untuk memastikan ticket items tertulis ke DB sebelum query
+                ticketItemRepository.flush();
 
-                if (!email.isBlank()) {
-                    emailService.sendOrderConfirmationEmail(email, orderIdStr, emailEventTitle, order.getQuantity());
+                // Kirim PDF tiket ke SETIAP attendee
+                List<TicketItem> tickets = ticketItemRepository.findByOrderOrderId(order.getOrderId());
+                log.info("DEBUG: Found {} tickets for order {}", tickets.size(), orderIdStr);
+                Set<String> sentEmails = new HashSet<>();
+
+                for (TicketItem ticket : tickets) {
+                    String attendeeEmail = ticket.getAttendeeEmail();
+                    String attendeeName = ticket.getAttendeeName();
+                    log.info("DEBUG: Processing ticket - attendeeEmail={}, attendeeName={}, ticketItemId={}", 
+                            attendeeEmail, attendeeName, ticket.getTicketItemId());
+
+                    if (attendeeEmail == null || attendeeEmail.isBlank() || sentEmails.contains(attendeeEmail)) {
+                        log.warn("DEBUG: Skipping ticket - email blank/duplicate: {}", attendeeEmail);
+                        continue;
+                    }
+                    sentEmails.add(attendeeEmail);
+
+                    TicketDetailResponse ticketDetail = ticketService.getIssuedDetail(ticket.getTicketItemId().toString());
+                    log.info("DEBUG: Got ticket detail for ticketItemId={}, sending PDF to {}", 
+                            ticket.getTicketItemId(), attendeeEmail);
+                    emailService.sendTicketPdf(attendeeEmail, attendeeName, ticketDetail);
+                    log.info("DEBUG: PDF ticket sent to {} for attendee {}", attendeeEmail, attendeeName);
+                }
+
+                // Kirim konfirmasi text ke pembeli (jika email beda dari attendee)
+                // customerEmail and eventTitle already declared above (lines 222, 224)
+                if (customerEmail != null && !customerEmail.isBlank() && !sentEmails.contains(customerEmail)) {
+                    emailService.sendOrderConfirmationEmail(customerEmail, orderIdStr, eventTitle, order.getQuantity());
                 }
             } catch (Exception e) {
-                log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: ", orderIdStr, e);
+                log.error("Gagal menerbitkan tiket atau mengirim email untuk Order ID {}: {}", orderIdStr, e.getMessage(), e);
             }
+        } // end else (generate tickets)
         } else if ("cancel".equalsIgnoreCase(transactionStatus) || "deny".equalsIgnoreCase(transactionStatus) || "expire".equalsIgnoreCase(transactionStatus)) {
             order.setStatus("EXPIRED".equalsIgnoreCase(transactionStatus) ? "EXPIRED" : "CANCELLED");
             orderService.handleExpiredOrCancelledOrder(order);

@@ -52,6 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             UUID userId = jwtTokenProvider.getUserId(token);
+            String email = jwtTokenProvider.getEmail(token);
             String role = jwtTokenProvider.getRole(token);
 
             Auth auth = authRepository.findByUserUserId(userId).orElse(null);
@@ -63,18 +64,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
                 
-                // Pengecekan kesesuaian token DB dinonaktifkan agar tidak memicu 401 saat token valid digunakan
-                /*
+                // Pengecekan kesesuaian token DB - hanya log warning, tidak block request
                 if (auth.getAksesToken() != null && !token.equals(auth.getAksesToken())) {
                     log.warn("JWT: Token mismatch dengan token aktif di DB untuk user {}", userId);
-                    filterChain.doFilter(request, response);
-                    return;
+                    // Tidak block request, hanya log warning
                 }
-                */
             }
 
             var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
-            var authentication = new UsernamePasswordAuthenticationToken(userId, null, authorities);
+            // Buat principal dengan format "userId:email" untuk memudahkan resolusi email
+            String principal = userId + ":" + email;
+            var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);
 

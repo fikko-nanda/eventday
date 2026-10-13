@@ -144,10 +144,12 @@ public class RefundService {
         // Menutup IDOR Exposure (Temuan 6)
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String currentUserIdStr = auth.getName();
+        // Parse userId dari format "userId:email" atau UUID saja
+        String userIdStr = currentUserIdStr.contains(":") ? currentUserIdStr.split(":")[0] : currentUserIdStr;
         boolean isAdmin = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
 
-        if (!refund.getCustomerId().toString().equalsIgnoreCase(currentUserIdStr) && !isAdmin) {
+        if (!refund.getCustomerId().toString().equalsIgnoreCase(userIdStr) && !isAdmin) {
             throw new AccessDeniedException("Anda tidak memiliki hak akses untuk melihat data refund ini.");
         }
 
