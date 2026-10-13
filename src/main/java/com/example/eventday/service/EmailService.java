@@ -1,6 +1,7 @@
 package com.example.eventday.service;
 
 import com.example.eventday.dto.TicketDetailResponse;
+import com.example.eventday.dto.TicketEmailData;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.common.BitMatrix;
@@ -112,6 +113,39 @@ public class EmailService {
             log.info("Order confirmation email sent to {}", to);
         } catch (Exception e) {
             log.warn("Gagal kirim order confirmation email ke {}: {}", to, e.getMessage());
+        }
+    }
+
+    // 5. Kirim E-Ticket Email dengan Detail Lengkap (Multiple Tickets per Recipient)
+    @Async
+    public void sendTicketEmail(TicketEmailData ticketData) {
+        String to = ticketData.getRecipientEmail();
+        if (to == null || to.isBlank()) {
+            log.warn("Recipient email is empty, skipping email send");
+            return;
+        }
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(getFormattedFrom());
+            helper.setTo(to);
+            helper.setSubject("E-Ticket Anda: " + ticketData.getEventTitle());
+
+            message.addHeader("Precedence", "bulk");
+            message.addHeader("List-Unsubscribe", "<mailto:unsubscribe@eventday.web.app?subject=unsubscribe>");
+
+            // Render HTML template with ticket data
+            Context context = new Context();
+            context.setVariable("data", ticketData);
+            String html = templateEngine.process("email/ticket-email", context);
+
+            helper.setText(html, true);
+
+            mailSender.send(message);
+            log.info("E-Ticket email sent to {} for order {}", to, ticketData.getOrderNumber());
+        } catch (Exception e) {
+            log.error("Gagal kirim E-Ticket email ke {}: {}", to, e.getMessage(), e);
         }
     }
 

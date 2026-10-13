@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="'E-Ticket - ' + ${data.eventTitle}">E-Ticket</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            padding: 30px 30px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        .header .badge {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 6px 16px;
+            background: #fff;
+            color: #1a1a2e;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #1a1a2e;
+        }
+        .event-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .event-info h2 {
+            margin: 0 0 15px;
+            font-size: 22px;
+            color: #1a1a2e;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .info-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #666;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .info-value {
+            font-size: 14px;
+            font-weight: 500;
+            color: #1a1a2e;
+        }
+        .tickets-section {
+            margin-top: 25px;
+        }
+        .tickets-section h3 {
+            font-size: 16px;
+            color: #1a1a2e;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #1a1a2e;
+            padding-bottom: 8px;
+        }
+        .ticket-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 12px;
+            background: #fff;
+        }
+        .ticket-card h4 {
+            margin: 0 0 10px;
+            font-size: 15px;
+            color: #1a1a2e;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+        }
+        .ticket-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 13px;
+        }
+        .detail-label {
+            color: #666;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .detail-value {
+            font-weight: 500;
+            color: #1a1a2e;
+        }
+        .total-section {
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 2px solid #1a1a2e;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .total-label {
+            color: #666;
+        }
+        .total-value {
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+        .total-row.final {
+            border-top: 1px solid #e0e0e0;
+            padding-top: 10px;
+            margin-top: 10px;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+        }
+        .qr-placeholder {
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            color: #888;
+            font-size: 12px;
+        }
+        @media print {
+            .no-print { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>EVENTDAY</h1>
+            <span class="badge">E-TICKET</span>
+        </header>
+
+        <div class="content">
+            <p class="greeting">Halo <span th:text="${data.buyerName}">Pemesan</span>,</p>
+            <p>Terima kasih telah memesan tiket di Eventday. Berikut adalah e-ticket Anda:</p>
+
+            <div class="event-info">
+                <h2 th:text="${data.eventTitle}">Event Title</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Tanggal & Waktu</span>
+                        <span class="info-value" th:text="${data.eventDate}">Event Date</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Venue</span>
+                        <span class="info-value" th:text="${data.venueName}">Venue</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Order</span>
+                        <span class="info-value" th:text="${data.orderNumber}">Order Number</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Total</span>
+                        <span class="info-value" th:text="${data.totalAmount}">Total Amount</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tickets-section">
+                <h3>Tiket Anda</h3>
+                <div th:each="ticket : ${data.tickets}" class="ticket-card">
+                    <h4 th:text="${ticket.tierName} + ' - ' + ${ticket.attendeeName}">Ticket Tier - Attendee</h4>
+                    <div class="ticket-details">
+                        <div>
+                            <span class="detail-label">Kode Tiket</span>
+                            <div class="detail-value" th:text="${ticket.ticketCode}">TICKET-123</div>
+                        </div>
+                        <div>
+                            <span class="detail-label">Kategori</span>
+                            <div class="detail-value" th:text="${ticket.tierName}">VIP</div>
+                        </div>
+                        <div>
+                            <span class="detail-label">Nama</span>
+                            <div class="detail-value" th:text="${ticket.attendeeName}">John Doe</div>
+                        </div>
+                        <div>
+                            <span class="detail-label">Harga</span>
+                            <div class="detail-value" th:text="${ticket.priceDisplay}">Rp 500.000</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="total-section">
+                <div class="total-row">
+                    <span class="total-label">Subtotal</span>
+                    <span class="total-value" th:text="${data.totalAmount}">Rp 1.000.000</span>
+                </div>
+                <div class="total-row final">
+                    <span class="total-label">Total Bayar</span>
+                    <span class="total-value" th:text="${data.totalAmount}">Rp 1.000.000</span>
+                </div>
+            </div>
+
+            <div class="qr-placeholder no-print">
+                📱 QR Code akan muncul di PDF tiket yang terlampir (jika ada) atau di aplikasi Eventday
+            </div>
+
+            <div class="footer">
+                <p>Tiket ini sah untuk satu kali masuk. Duplikasi tidak diperbolehkan.</p>
+                <p>Eventday - <span th:text="${data.eventTitle}">Event Title</span></p>
+                <p>Jika ada pertanyaan, hubungi support@eventday.com</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
